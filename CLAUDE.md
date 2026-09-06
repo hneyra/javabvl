@@ -109,8 +109,10 @@ antes** que el `Item`; eso hace `saveData`.
 ## Release (GitHub Actions)
 
 `.github/workflows/release.yml`, en cada push a `main`: tests → sube el patch del POM y el nombre del jar en
-`deploy/ejecutar.bat` → `package` → commit `[skip ci]` + tag `vX.Y.Z` → release con el jar y un zip listo para
-descomprimir en Windows.
+`deploy/ejecutar.bat` → `package` → commit `[skip ci]` + tag `vX.Y.Z` → release.
+
+Adjuntos: el jar, un zip con el jar y todo `deploy/` dentro (listo para descomprimir en Windows), y además cada
+fichero de `deploy/` suelto. El workflow no fija nombres: lo que metas en esa carpeta entra solo.
 
 - La versión la lleva el workflow. Para un salto de menor o mayor, edita el POM y deja que siga desde ahí.
 - `deploy/ejecutar.bat` fija el nombre del jar a mano; el workflow lo reescribe con `sed` y lo verifica con `grep`.
