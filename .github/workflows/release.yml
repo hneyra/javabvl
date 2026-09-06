@@ -74,7 +74,8 @@ jobs:
           DIR="bvl-$NUEVA"
           mkdir -p "$DIR"
           cp "target/bvl-$NUEVA.jar" "$DIR/"
-          cp deploy/bvl.properties deploy/ejecutar.bat "$DIR/"
+          # Todo lo que haya en deploy/, sin nombres fijos: si se anade un fichero, entra solo.
+          cp -R deploy/. "$DIR/"
           zip -r "$DIR.zip" "$DIR"
           echo "zip=$DIR.zip" >> "$GITHUB_OUTPUT"
           echo "jar=target/bvl-$NUEVA.jar" >> "$GITHUB_OUTPUT"
@@ -103,7 +104,13 @@ jobs:
           ZIP: ${{ steps.paquete.outputs.zip }}
         run: |
           set -euo pipefail
+          # Los ficheros de deploy/ van tambien sueltos, para poder bajarse solo el properties
+          # sin arrastrar los 80 MB del zip. -maxdepth 1 -type f: gh no acepta directorios.
+          DEPLOY=()
+          while IFS= read -r f; do DEPLOY+=("$f"); done < <(find deploy -maxdepth 1 -type f | sort)
+          echo "Adjuntos: $JAR $ZIP ${DEPLOY[*]-}"
           # --generate-notes ya deduce solo el tag anterior para el rango de cambios.
-          gh release create "$TAG" "$JAR" "$ZIP" \
+          # ${DEPLOY[@]+...} evita que un deploy/ vacio reviente con set -u.
+          gh release create "$TAG" "$JAR" "$ZIP" ${DEPLOY[@]+"${DEPLOY[@]}"} \
             --title "JavaBVL $NUEVA" \
             --generate-notes
