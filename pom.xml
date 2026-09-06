@@ -9,7 +9,16 @@
     <packaging>jar</packaging>
 
     <name>JavaBVL</name>
-    <description>Java BVL</description>
+    <description>Vigila las cotizaciones de la Bolsa de Valores de Lima, las exporta a Excel y
+        avisa de las variaciones por la bandeja del sistema.</description>
+
+    <licenses>
+        <license>
+            <name>GNU Lesser General Public License v3.0 or later</name>
+            <url>https://www.gnu.org/licenses/lgpl-3.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
