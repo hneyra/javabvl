@@ -20,8 +20,8 @@ import org.junit.jupiter.api.Test;
  * complementarlo, asi que una propiedad sin valor por defecto que falte alli tumba el arranque en
  * produccion y en ningun otro sitio. Este test lo detecta en el build.
  *
- * <p>Si anades un {@code @Value("${...}")} sin default al codigo, anadelo tambien aqui y al
- * fichero de despliegue.
+ * <p>Todas las propiedades se declaran en un unico sitio, {@code bvl.config.BvlProperties}. Si
+ * anades alli una sin valor por defecto, anadela tambien a esta lista y al fichero de despliegue.
  */
 class DeployPropertiesTest {
 

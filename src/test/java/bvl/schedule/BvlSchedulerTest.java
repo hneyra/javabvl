@@ -5,16 +5,17 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import bvl.BVL2;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.concurrent.ScheduledFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -34,13 +35,13 @@ class BvlSchedulerTest {
 
   private static final ZoneId ZONA = ZoneId.of("America/Lima");
 
-  private BVL2 bvl;
+  private CicloSondeo ciclo;
   private TaskScheduler taskScheduler;
   private SondeoListener listener;
 
   @BeforeEach
   void setUp() {
-    bvl = mock(BVL2.class);
+    ciclo = mock(CicloSondeo.class);
     taskScheduler = mock(TaskScheduler.class);
     listener = mock(SondeoListener.class);
   }
@@ -50,10 +51,17 @@ class BvlSchedulerTest {
     Clock reloj = Clock.fixed(
         LocalDateTime.of(2024, 1, 16, hora.getHour(), hora.getMinute()).atZone(ZONA).toInstant(),
         ZONA);
-    BvlScheduler s = new BvlScheduler(bvl, taskScheduler,
+    BvlScheduler s = new BvlScheduler(ciclo, taskScheduler,
         HorarioSondeo.of("9:40:00", "16:30", "00:20:00"), reloj);
     s.setListener(listener);
     return s;
+  }
+
+  /** El planificador devuelve siempre el mismo futuro, para poder verificar su cancelacion. */
+  private ScheduledFuture<?> programacionDevuelve() {
+    ScheduledFuture<?> future = mock(ScheduledFuture.class);
+    when(taskScheduler.schedule(any(Runnable.class), any(Trigger.class))).thenAnswer(i -> future);
+    return future;
   }
 
   @Test
@@ -61,8 +69,22 @@ class BvlSchedulerTest {
   void dentroDeVentanaSondea() {
     schedulerA(LocalTime.of(12, 0)).ejecutarSondeo();
 
-    verify(bvl).process();
-    verify(listener).onSondeoCompletado();
+    verify(ciclo).process();
+    verify(listener).onSondeoCompletado(any());
+  }
+
+  @Test
+  @DisplayName("el resultado del ciclo llega al listener tal cual, sin releer nada")
+  void elResultadoViajaAlListener() {
+    // Antes las cotizaciones vivian en un campo del orquestador que leia el EDT sin sincronizar,
+    // y la ventana pedia la fecha otra vez por HTTP solo para el titulo del aviso.
+    ResultadoSondeo resultado = new ResultadoSondeo(
+        new Lectura(List.of(), LocalDateTime.of(2024, 1, 16, 12, 0)), null);
+    when(ciclo.process()).thenReturn(resultado);
+
+    schedulerA(LocalTime.of(12, 0)).ejecutarSondeo();
+
+    verify(listener).onSondeoCompletado(resultado);
   }
 
   @Test
@@ -71,7 +93,7 @@ class BvlSchedulerTest {
     schedulerA(LocalTime.of(9, 40)).ejecutarSondeo();
     schedulerA(LocalTime.of(16, 30)).ejecutarSondeo();
 
-    verify(bvl, org.mockito.Mockito.times(2)).process();
+    verify(ciclo, times(2)).process();
   }
 
   @Test
@@ -80,8 +102,8 @@ class BvlSchedulerTest {
     // El cron dispara a las 9:20 porque la hora 9 entra entera en el rango 9-16.
     schedulerA(LocalTime.of(9, 20)).ejecutarSondeo();
 
-    verifyNoInteractions(bvl);
-    verify(listener, never()).onSondeoCompletado();
+    verifyNoInteractions(ciclo);
+    verify(listener, never()).onSondeoCompletado(any());
   }
 
   @Test
@@ -89,7 +111,7 @@ class BvlSchedulerTest {
   void trasElCierreNoSondea() {
     schedulerA(LocalTime.of(16, 40)).ejecutarSondeo();
 
-    verifyNoInteractions(bvl);
+    verifyNoInteractions(ciclo);
   }
 
   @Test
@@ -97,20 +119,18 @@ class BvlSchedulerTest {
   void elFalloNoTumbaLaTarea() {
     BvlScheduler s = schedulerA(LocalTime.of(12, 0));
     RuntimeException boom = new RuntimeException("sin conexion con la BVL");
-    doThrow(boom).when(bvl).process();
+    doThrow(boom).when(ciclo).process();
 
     s.ejecutarSondeo();
 
     verify(listener).onSondeoFallido(boom);
-    verify(listener, never()).onSondeoCompletado();
+    verify(listener, never()).onSondeoCompletado(any());
   }
 
   @Test
   @DisplayName("iniciar programa la tarea con el cron del horario")
   void iniciarProgramaElCron() {
-    ScheduledFuture<?> future = mock(ScheduledFuture.class);
-    when(taskScheduler.schedule(any(Runnable.class), any(Trigger.class)))
-        .thenAnswer(i -> future);
+    programacionDevuelve();
     BvlScheduler s = schedulerA(LocalTime.of(12, 0));
 
     s.iniciar();
@@ -126,24 +146,19 @@ class BvlSchedulerTest {
   @Test
   @DisplayName("iniciar dos veces no duplica la tarea")
   void iniciarEsIdempotente() {
-    ScheduledFuture<?> future = mock(ScheduledFuture.class);
-    when(taskScheduler.schedule(any(Runnable.class), any(Trigger.class)))
-        .thenAnswer(i -> future);
+    programacionDevuelve();
     BvlScheduler s = schedulerA(LocalTime.of(12, 0));
 
     s.iniciar();
     s.iniciar();
 
-    verify(taskScheduler, org.mockito.Mockito.times(1))
-        .schedule(any(Runnable.class), any(Trigger.class));
+    verify(taskScheduler, times(1)).schedule(any(Runnable.class), any(Trigger.class));
   }
 
   @Test
   @DisplayName("detener cancela la tarea y deja el scheduler inactivo")
   void detenerCancela() {
-    ScheduledFuture<?> future = mock(ScheduledFuture.class);
-    when(taskScheduler.schedule(any(Runnable.class), any(Trigger.class)))
-        .thenAnswer(i -> future);
+    ScheduledFuture<?> future = programacionDevuelve();
     BvlScheduler s = schedulerA(LocalTime.of(12, 0));
     s.iniciar();
 
@@ -173,13 +188,13 @@ class BvlSchedulerTest {
 
     // La lectura va al hilo del planificador, no al EDT: es red + BD + escritura de XLS.
     ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
-    verify(taskScheduler).schedule(captor.capture(), any(java.time.Instant.class));
-    verifyNoInteractions(bvl);
+    verify(taskScheduler).schedule(captor.capture(), any(Instant.class));
+    verifyNoInteractions(ciclo);
 
     captor.getValue().run();
 
-    verify(bvl).process();
-    verify(listener).onSondeoCompletado();
+    verify(ciclo).process();
+    verify(listener).onSondeoCompletado(any());
   }
 
   @Test
@@ -188,8 +203,8 @@ class BvlSchedulerTest {
     // A las 3 de la madrugada el cron no sondearia, pero pulsar Iniciar debe leer igual.
     schedulerA(LocalTime.of(3, 0)).sondearAhora();
 
-    verify(bvl).process();
-    verify(listener).onSondeoCompletado();
+    verify(ciclo).process();
+    verify(listener).onSondeoCompletado(any());
   }
 
   @Test
@@ -197,7 +212,7 @@ class BvlSchedulerTest {
   void elCronSigueRespetandoLaVentana() {
     schedulerA(LocalTime.of(3, 0)).ejecutarSondeo();
 
-    verifyNoInteractions(bvl);
+    verifyNoInteractions(ciclo);
   }
 
   @Test
@@ -205,7 +220,7 @@ class BvlSchedulerTest {
   void falloEnLecturaInmediataNoSePropaga() {
     BvlScheduler s = schedulerA(LocalTime.of(3, 0));
     RuntimeException boom = new RuntimeException("sin conexion con la BVL");
-    doThrow(boom).when(bvl).process();
+    doThrow(boom).when(ciclo).process();
 
     s.sondearAhora();
 
@@ -215,16 +230,13 @@ class BvlSchedulerTest {
   @Test
   @DisplayName("iniciar sobre un scheduler ya activo no repite la lectura inmediata")
   void iniciarActivoNoRepiteLecturaInmediata() {
-    ScheduledFuture<?> future = mock(ScheduledFuture.class);
-    when(taskScheduler.schedule(any(Runnable.class), any(Trigger.class)))
-        .thenAnswer(i -> future);
+    programacionDevuelve();
     BvlScheduler s = schedulerA(LocalTime.of(12, 0));
 
     s.iniciar();
     s.iniciar();
 
-    verify(taskScheduler, org.mockito.Mockito.times(1))
-        .schedule(any(Runnable.class), any(java.time.Instant.class));
+    verify(taskScheduler, times(1)).schedule(any(Runnable.class), any(Instant.class));
   }
 
   @Test
@@ -241,8 +253,7 @@ class BvlSchedulerTest {
 
     verify(vieja).cancel(false);
     ArgumentCaptor<Trigger> captor = ArgumentCaptor.forClass(Trigger.class);
-    verify(taskScheduler, org.mockito.Mockito.times(2))
-        .schedule(any(Runnable.class), captor.capture());
+    verify(taskScheduler, times(2)).schedule(any(Runnable.class), captor.capture());
     assertThat(((CronTrigger) captor.getAllValues().get(1)).getExpression())
         .isEqualTo("0 0/5 10-15 * * MON-FRI");
     assertThat(s.isActivo()).isTrue();
@@ -269,18 +280,18 @@ class BvlSchedulerTest {
 
     s.ejecutarSondeo();
 
-    verifyNoInteractions(bvl);
+    verifyNoInteractions(ciclo);
   }
 
   @Test
   @DisplayName("sin listener registrado el sondeo sigue funcionando")
   void sinListenerNoRevienta() {
     Clock reloj = Clock.fixed(Instant.parse("2024-01-16T17:00:00Z"), ZONA);
-    BvlScheduler s = new BvlScheduler(bvl, taskScheduler,
+    BvlScheduler s = new BvlScheduler(ciclo, taskScheduler,
         HorarioSondeo.of("9:40:00", "16:30", "00:20:00"), reloj);
 
     s.ejecutarSondeo();
 
-    verify(bvl).process();
+    verify(ciclo).process();
   }
 }

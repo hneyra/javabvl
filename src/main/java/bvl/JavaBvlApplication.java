@@ -1,28 +1,22 @@
 package bvl;
 
-import bvl.domain.Accion;
-import bvl.schedule.BvlScheduler;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.builder.SpringApplicationBuilder;
-import org.springframework.context.annotation.Bean;
 
-@EnableAutoConfiguration
-@EntityScan(basePackageClasses = Accion.class)
+/**
+ * Arranque de la aplicacion.
+ *
+ * <p>{@code headless(false)} no es opcional: la aplicacion es una ventana Swing y sin esto Boot
+ * arrancaria en modo headless y el {@code JFrame} reventaria. Los tests, en cambio, corren
+ * headless: lo fija surefire en el POM.
+ *
+ * <p>La aplicacion arranca <b>en reposo</b>. Hasta que alguien pulsa Iniciar no se programa ni se
+ * ejecuta ningun sondeo.
+ */
 @SpringBootApplication
 public class JavaBvlApplication {
 
     public static void main(String[] args) {
         new SpringApplicationBuilder(JavaBvlApplication.class).headless(false).run(args);
-    }
-
-    // Las dependencias entran por parametro, no por campo @Autowired: asi esta clase no exige
-    // beans que un contexto recortado (los @DataJpaTest) no tiene por que poder construir.
-    @Bean
-    public JBVL frame(BVL2 bvl, BvlScheduler scheduler) {
-        JBVL jbvl = new JBVL(bvl, scheduler);
-        jbvl.setVisible(true);
-        return jbvl;
     }
 }

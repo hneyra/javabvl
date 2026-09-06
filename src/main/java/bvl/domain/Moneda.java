@@ -1,24 +1,9 @@
 package bvl.domain;
 
-import jakarta.persistence.*;
-
-@Entity
+/** Moneda en la que cotiza una accion ("S/", "US$"). */
 public class Moneda {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
-    private Long id;
-
-    @Column(insertable = true, updatable = true, unique = true, nullable = false, length = 32)
     private String nombre;
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
 
     public String getNombre() {
         return nombre;

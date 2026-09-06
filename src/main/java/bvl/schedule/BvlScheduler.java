@@ -1,6 +1,6 @@
 package bvl.schedule;
 
-import bvl.BVL2;
+import bvl.config.BvlProperties;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalTime;
@@ -8,7 +8,6 @@ import java.util.concurrent.ScheduledFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Service;
@@ -20,13 +19,16 @@ import org.springframework.stereotype.Service;
  * <p>El cron cubre la rejilla del reloj dentro del rango de horas; los disparos que caen fuera del
  * horario real de sesion los descarta {@link HorarioSondeo#dentroDeVentana(LocalTime)}. Ver
  * {@link HorarioSondeo} para el porque de las dos piezas.
+ *
+ * <p>La aplicacion arranca en reposo: hasta que alguien pulsa Iniciar no se programa nada.
  */
 @Service
 public class BvlScheduler {
 
+    /** Evita comprobar null en cada disparo: sin ventana registrada, los avisos se tiran. */
     private static final SondeoListener SIN_LISTENER = new SondeoListener() {
         @Override
-        public void onSondeoCompletado() {
+        public void onSondeoCompletado(ResultadoSondeo resultado) {
         }
 
         @Override
@@ -34,31 +36,27 @@ public class BvlScheduler {
         }
     };
 
-    private final Logger logger = LoggerFactory.getLogger(getClass());
+    private static final Logger logger = LoggerFactory.getLogger(BvlScheduler.class);
 
-    private final BVL2 bvl;
+    private final CicloSondeo ciclo;
     private final TaskScheduler taskScheduler;
-    private volatile HorarioSondeo horario;
     private final Clock clock;
 
+    private volatile HorarioSondeo horario;
     private volatile SondeoListener listener = SIN_LISTENER;
     private ScheduledFuture<?> tarea;
 
     // @Autowired explicito: hay dos constructores y sin la marca Spring busca el vacio y falla.
     @Autowired
-    public BvlScheduler(BVL2 bvl,
-                        TaskScheduler taskScheduler,
-                        @Value("${horaInicio}") String horaInicio,
-                        @Value("${horaFin}") String horaFin,
-                        @Value("${intervalo}") String intervalo) {
-        // Se construye aqui a proposito: un horario mal configurado revienta al arrancar la
-        // aplicacion, no a mitad de sesion.
-        this(bvl, taskScheduler, HorarioSondeo.of(horaInicio, horaFin, intervalo),
-                Clock.systemDefaultZone());
+    public BvlScheduler(CicloSondeo ciclo, TaskScheduler taskScheduler, BvlProperties properties) {
+        // El horario ya viene validado desde BvlProperties: una configuracion mala impide arrancar
+        // la aplicacion en vez de fallar a mitad de sesion.
+        this(ciclo, taskScheduler, properties.getHorario(), Clock.systemDefaultZone());
     }
 
-    BvlScheduler(BVL2 bvl, TaskScheduler taskScheduler, HorarioSondeo horario, Clock clock) {
-        this.bvl = bvl;
+    BvlScheduler(CicloSondeo ciclo, TaskScheduler taskScheduler, HorarioSondeo horario,
+                 Clock clock) {
+        this.ciclo = ciclo;
         this.taskScheduler = taskScheduler;
         this.horario = horario;
         this.clock = clock;
@@ -124,8 +122,8 @@ public class BvlScheduler {
     }
 
     /**
-     * Sondeo a demanda: **ignora la ventana horaria** a proposito. Sirve para traer lo ultimo que
-     * haya publicado la BVL en el momento de arrancar, aunque sea de madrugada o fin de semana
+     * Sondeo a demanda: <b>ignora la ventana horaria</b> a proposito. Sirve para traer lo ultimo
+     * que haya publicado la BVL en el momento de arrancar, aunque sea de madrugada o fin de semana
      * (en ese caso devuelve el cierre del ultimo dia habil).
      */
     void sondearAhora() {
@@ -140,10 +138,9 @@ public class BvlScheduler {
             return;
         }
         try {
-            bvl.process();
-            listener.onSondeoCompletado();
+            listener.onSondeoCompletado(ciclo.process());
         } catch (Throwable e) {
-            logger.error("Fallo el sondeo de las " + ahora + ": " + e.getMessage(), e);
+            logger.error("Fallo el sondeo de las {}: {}", ahora, e.getMessage(), e);
             listener.onSondeoFallido(e);
         }
     }
