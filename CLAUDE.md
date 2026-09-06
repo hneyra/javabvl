@@ -16,14 +16,16 @@ Empaquetado como jar ejecutable (`bvl-<version>.jar`) y desplegado en Windows co
 
 ## Build y ejecución
 
-El proyecto es Maven (sin wrapper `mvnw`). Java 17 como `java.version` del POM, Spring Boot 3.0.2.
+Java 17 como `java.version` del POM, Spring Boot 3.0.2. **Usa siempre el wrapper** (`./mvnw`, `mvnw.cmd` en Windows):
+está en el repo y fija Maven 3.9.11, así que no hace falta tener `mvn` instalado.
 
 ```bash
-mvn clean package          # compila + empaqueta el jar ejecutable en target/
-mvn compile                # solo compilar
-mvn spring-boot:run        # arrancar en desarrollo (abre la ventana Swing)
-mvn test                   # tests
-mvn test -Dtest=NombreTest#metodo   # un solo test / método
+./mvnw clean package        # compila + empaqueta el jar ejecutable en target/
+./mvnw compile              # solo compilar
+./mvnw spring-boot:run      # arrancar en desarrollo (abre la ventana Swing)
+./mvnw test                 # toda la suite
+./mvnw test -Dtest=BvlServiceIntegrationTest              # una clase
+./mvnw test -Dtest=BvlServiceIntegrationTest#getLastDateDevuelveLaMasAntigua   # un método
 ```
 
 Ejecutar el jar con configuración externa (así se despliega en producción):
@@ -34,14 +36,11 @@ java -jar target/bvl-4.6.0.jar --spring.config.location=deploy/bvl.properties
 
 ### Antes de dar por buenas estas órdenes
 
-- **`mvn` no está instalado en esta máquina** (solo hay un JDK Temurin 25). Instálalo (`brew install maven`) o usa el
-  Maven que trae IntelliJ antes de afirmar que algo compila o pasa los tests.
-- El JDK presente es 25 mientras el POM apunta a 17; si aparecen fallos raros de plugins/bytecode, ese es el primer
+- El JDK de la máquina es Temurin 25 mientras el POM apunta a 17. Está comprobado que compila y que la suite pasa
+  entera, Hibernate y Mockito incluidos; si aparecen fallos raros de plugins o bytecode, ese desfase es el primer
   sospechoso.
 - `main()` arranca con `.headless(false)` y `frame()` crea un `JFrame` visible: **la app no arranca sin display**. No la
-  lances en un entorno headless ni en CI sin `Xvfb`/equivalente.
-- No hay tests reales: `src/test/java/bvl/JavaBvlApplicationTests.java` está íntegramente comentado. `mvn test` pasa
-  porque no ejecuta nada.
+  lances en un entorno headless ni en CI sin `Xvfb`/equivalente. Los tests sí son headless-safe (ver más abajo).
 - `xlsPath` en `application.properties` es una ruta Windows (`E:/tmp/XLS2/`). Para probar en macOS/Linux hay que
   sobreescribirla o la exportación fallará.
 
@@ -110,16 +109,55 @@ eso es lo que hace `saveData`.
 
 `Item.fechaLectura` duplica `item.getLectura().getFecha()`; la exportación agrupa por `fechaLectura`.
 
+## Tests
+
+52 tests en 8 clases, todos en `./mvnw test`. No tocan la red, ni la BD de desarrollo, ni abren ventanas: surefire
+fuerza `java.awt.headless=true` desde el `pom.xml` y `src/test/resources/application.properties` apunta a una H2 en
+memoria.
+
+| Clase | Cubre |
+|---|---|
+| `JBVLParseTimeTest` | `parseTime`, el periodo real del bucle de sondeo |
+| `BvlServiceDatesEntreTest` | `datesEntre`, sin Spring |
+| `BVL2GetVariacionesTest` | mensaje de alertas: umbral, signo, redacción, nulos |
+| `XlsWriterTest` | escritura de tipos, filas y hojas, releyendo con POI |
+| `RepositoriesIntegrationTest` | métodos derivados de los repositorios contra H2 |
+| `BvlServiceIntegrationTest` | deduplicación de catálogos y consultas por lectura |
+| `BvlReaderIntegrationTest` | contrato con la API BVL y mapeo `BvlItem`→`Item`, con `WebClient` stub |
+| `BvlExporterIntegrationTest` | layout de carpetas/hojas y posición de cada columna del XLS |
+
+Convenciones que conviene respetar al añadir tests:
+
+- **Nombra las clases `*Test` o `*IntegrationTest`, nunca `*IT`.** El surefire 2.22.2 que fija Boot 3.0.2 no recoge el
+  patrón `*IT.java` (ese es de failsafe) y el test quedaría fuera de `./mvnw test` sin avisar.
+- **Nada de clases `@Nested`**, por la misma versión de surefire: no las selecciona con `-Dtest=`.
+- Los tests de persistencia usan `@DataJpaTest` + `@ContextConfiguration(classes = TestJpaConfig.class)`.
+  `TestJpaConfig` (en `bvl.support`) es **obligatoria**: sin ella Spring encuentra `JavaBvlApplication`, que declara un
+  `@Autowired BVL2` y el bean `JBVL`, y el contexto recortado no arranca.
+- `BvlReaderIntegrationTest` **no llama a `reader.init()`** a propósito: ese `@PostConstruct` desactiva la validación de
+  certificados TLS de toda la JVM.
+- Los tests marcados `CARACTERIZACION:` fijan el comportamiento actual, incluido el que parece un bug. Están enlazados
+  con la sección siguiente. Si arreglas alguna de esas trampas, el test que la caracteriza **debe** fallar: actualízalo,
+  no lo borres.
+
 ## Trampas conocidas (no las "arregles" sin preguntar)
 
 - **`BvlService.getLastDate()` devuelve la lectura MÁS ANTIGUA**, no la última: ordena `Direction.ASC` y toma la primera
   página. `BVL2.process()` la usa para cargar `dataAnt`, que además nunca se lee.
+  → `BvlServiceIntegrationTest#getLastDateDevuelveLaMasAntigua`
+- **`BvlService.getHoras()` lanza `DateTimeException` con cualquier entrada**: `LocalDateTime.from(fecha.toLocalDate())`
+  no puede construir una hora a partir de un `LocalDate`, que no tiene campos de tiempo. El método está muerto en
+  producción (no lo llama nadie), por eso nunca ha dado la cara.
+  → `BvlServiceIntegrationTest#getHorasSiempreFalla`
 - **Las guardas anti-duplicado están comentadas** en `BVL2.process()` (`if (date != null && lastDate.isBefore(date))`) y
   en `BvlService.saveData` (`if (lastDate == null || !fecha.equals(lastDate))`). Consecuencia: cada ciclo reescribe
   items aunque la BVL no haya publicado datos nuevos, colgándolos de la misma `Lectura`. Está así a propósito en el
   commit actual.
+  → `BvlServiceIntegrationTest#saveDataRepetirLaMismaLecturaDuplicaItems`
 - **`BvlService.exportar`** exporta al fichero mensual solo el último grupo horario del bucle (`k`/`d2` conservan la
   última iteración), no todos.
+- **`BVL2.getVariaciones` formatea con el locale por defecto de la JVM**: en una máquina `de_DE` el mensaje sale con
+  coma decimal (`subió 3,5%`) y en `en_US` con punto. El test fija el locale para no depender de la máquina.
 - **`BvlExporter.closeResources()` está vacía** (cuerpo comentado); los `Workbook`/streams no se cierran explícitamente.
 - **`BvlReader.readData()` muestra un `JOptionPane` en caso de error de red** — es código de UI dentro de un servicio;
   cualquier uso no interactivo (test, batch) se quedará bloqueado en el diálogo.
