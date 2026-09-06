@@ -189,4 +189,6 @@ sin anotaciones porque el POM compila con `-parameters`.
 
 - Logging SLF4J con placeholders `{}`, no concatenación de strings.
 - Inyección por constructor, nunca sobre campos.
-- `README.md` son notas de versión.
+- `README.md` es la portada para el usuario; las notas de versión viven en `CHANGELOG.md`.
+- El proyecto es LGPL-3.0: `LICENSE` (LGPL) y `COPYING` (GPL, a la que la LGPL se remite) son texto
+  legal verbatim de gnu.org. No los edites.
