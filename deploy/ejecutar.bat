@@ -1,1 +1,1 @@
-java -jar bvl-4.6.2.jar --spring.config.location=bvl.properties
+java -jar bvl-4.6.3.jar --spring.config.location=bvl.properties
