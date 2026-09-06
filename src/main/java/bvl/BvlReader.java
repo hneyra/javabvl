@@ -4,8 +4,6 @@ import bvl.domain.*;
 import bvl.domain.input.BvlItem;
 import bvl.domain.input.Daily;
 import bvl.domain.input.StockMarket;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,9 +25,7 @@ import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -40,11 +36,7 @@ public class BvlReader {
 
 //    reactor.netty.http.client.HttpClientOperations hco;
 
-    public static int DEFAULT_TIMEOUT_MS = 300_000;
     private final Logger logger = LoggerFactory.getLogger(getClass());
-    private final ObjectMapper objectMapper = new ObjectMapper();
-    DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-    DateTimeFormatter dateTimeformatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
     @Value("${urlCotizaciones}")
     private String urlCotizaciones;
     @Value("${urlHora}")
@@ -93,22 +85,7 @@ public class BvlReader {
 
     @PostConstruct
     public void init() {
-        // register module in order to support LocalTime and LocalDate
-        objectMapper.registerModule(new JavaTimeModule());
         disableSSLCertificateChecking();
-    }
-
-    String extractJson(String data) {
-        final String startString = "data\t=\t{";
-        final String endString = "}else{";
-        int startPos = data.indexOf(startString);
-        if (startPos != -1) {
-            int endPos = data.indexOf(endString, startPos);
-            if (endPos != -1) {
-                return data.substring(startPos + startString.length() - 1, endPos);
-            }
-        }
-        return null;
     }
 
     public List<Item> readData() {
@@ -195,50 +172,4 @@ public class BvlReader {
         return null;
     }
 
-    private String getFechaInicio(String text) {
-        int pos = text.indexOf("n: ");
-        if (pos != -1) {
-            int lastPos = text.indexOf(" ", pos + 3);
-            if (lastPos != -1) {
-                return text.substring(pos + 3, lastPos);
-            }
-        }
-        return null;
-    }
-
-    private String getHoraInicio(String text) {
-        int pos = text.lastIndexOf(" ");
-        if (pos != -1) {
-            return text.substring(pos + 1, text.length());
-        }
-        return null;
-    }
-
-    private String forceTrim(String text) {
-        if (text != null) {
-            return text.replace(String.valueOf((char) 160), " ").trim();
-        }
-        return null;
-    }
-
-    private LocalDate parseLocalDate(String value) {
-        if (value != null && !value.isEmpty()) {
-            return LocalDate.parse(value, dateFormatter);
-        }
-        return null;
-    }
-
-    private Long parseLong(String value) {
-        if (value != null && !value.isEmpty()) {
-            return Long.parseLong(value.replace(",", ""));
-        }
-        return null;
-    }
-
-    private Double parseDouble(String value) {
-        if (value != null && !value.isEmpty()) {
-            return Double.parseDouble(value.replace(",", ""));
-        }
-        return null;
-    }
 }

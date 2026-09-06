@@ -17,7 +17,7 @@ public class Accion {
     private String empresa;
 
     @JsonIgnore
-    @OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
+    @ManyToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
     @JoinColumn(name = "sector_id", referencedColumnName = "id", updatable = true, insertable = true, unique = false)
     private Sector sector;
 

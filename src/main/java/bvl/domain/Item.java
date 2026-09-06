@@ -14,17 +14,17 @@ public class Item {
     private Long id;
 
     @JsonIgnore
-    @OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
+    @ManyToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
     @JoinColumn(name = "lectura_id", referencedColumnName = "id", updatable = true, insertable = true, unique = false)
     private Lectura lectura;
 
     @JsonIgnore
-    @OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
+    @ManyToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
     @JoinColumn(name = "accion_id", referencedColumnName = "id", updatable = true, insertable = true, unique = false)
     private Accion accion;
 
     @JsonIgnore
-    @OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
+    @ManyToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
     @JoinColumn(name = "moneda_id", referencedColumnName = "id", updatable = true, insertable = true, unique = false)
     private Moneda moneda;
 

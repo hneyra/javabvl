@@ -16,7 +16,7 @@ Empaquetado como jar ejecutable (`bvl-<version>.jar`) y desplegado en Windows co
 
 ## Build y ejecución
 
-Java 17 como `java.version` del POM, Spring Boot 3.0.2. **Usa siempre el wrapper** (`./mvnw`, `mvnw.cmd` en Windows):
+Java 25 como `java.version` del POM, Spring Boot 4.1.1. **Usa siempre el wrapper** (`./mvnw`, `mvnw.cmd` en Windows):
 está en el repo y fija Maven 3.9.11, así que no hace falta tener `mvn` instalado.
 
 ```bash
@@ -36,9 +36,8 @@ java -jar target/bvl-4.6.0.jar --spring.config.location=deploy/bvl.properties
 
 ### Antes de dar por buenas estas órdenes
 
-- El JDK de la máquina es Temurin 25 mientras el POM apunta a 17. Está comprobado que compila y que la suite pasa
-  entera, Hibernate y Mockito incluidos; si aparecen fallos raros de plugins o bytecode, ese desfase es el primer
-  sospechoso.
+- El POM compila con `release 25` y la máquina tiene Temurin 25, así que build y despliegue van a la par. **El jar
+  exige un JRE 25+**: si el equipo Windows donde corre `deploy/ejecutar.bat` tiene uno anterior, no arranca.
 - `main()` arranca con `.headless(false)` y `frame()` crea un `JFrame` visible: **la app no arranca sin display**. No la
   lances en un entorno headless ni en CI sin `Xvfb`/equivalente. Los tests sí son headless-safe (ver más abajo).
 - `xlsPath` en `application.properties` es una ruta Windows (`E:/tmp/XLS2/`). Para probar en macOS/Linux hay que
@@ -104,7 +103,7 @@ Piezas y sus responsabilidades:
 
 `Lectura` es el eje temporal: una fila por instante de sondeo (`fecha` único). Cada `Item` es la cotización de una
 `Accion` en una `Lectura` concreta, con `Moneda` asociada; `Accion` cuelga de un `Sector`. Todas las relaciones son
-`@OneToOne` LAZY con `cascade = REFRESH`, así que las entidades relacionadas **deben guardarse antes** que el `Item` —
+`@ManyToOne` LAZY con `cascade = REFRESH`, así que las entidades relacionadas **deben guardarse antes** que el `Item` —
 eso es lo que hace `saveData`.
 
 `Item.fechaLectura` duplica `item.getLectura().getFecha()`; la exportación agrupa por `fechaLectura`.
@@ -128,9 +127,10 @@ memoria.
 
 Convenciones que conviene respetar al añadir tests:
 
-- **Nombra las clases `*Test` o `*IntegrationTest`, nunca `*IT`.** El surefire 2.22.2 que fija Boot 3.0.2 no recoge el
-  patrón `*IT.java` (ese es de failsafe) y el test quedaría fuera de `./mvnw test` sin avisar.
-- **Nada de clases `@Nested`**, por la misma versión de surefire: no las selecciona con `-Dtest=`.
+- **Nombra las clases `*Test` o `*IntegrationTest`, nunca `*IT`.** Surefire no recoge el patrón `*IT.java` (ese es de
+  failsafe, y el proyecto no lo configura), así que el test quedaría fuera de `./mvnw test` sin avisar de nada.
+- Las clases `@Nested` sí funcionan con el surefire 3.5.6 que trae Boot 4.1 (no era el caso con el 2.22.2 de Boot 3).
+  Las clases actuales están planas por herencia de la versión anterior; no hay que aplanar las nuevas.
 - Los tests de persistencia usan `@DataJpaTest` + `@ContextConfiguration(classes = TestJpaConfig.class)`.
   `TestJpaConfig` (en `bvl.support`) es **obligatoria**: sin ella Spring encuentra `JavaBvlApplication`, que declara un
   `@Autowired BVL2` y el bean `JBVL`, y el contexto recortado no arranca.
@@ -162,17 +162,45 @@ Convenciones que conviene respetar al añadir tests:
 - **`BvlReader.readData()` muestra un `JOptionPane` en caso de error de red** — es código de UI dentro de un servicio;
   cualquier uso no interactivo (test, batch) se quedará bloqueado en el diálogo.
 
+## Migración a Spring Boot 4.1 (hecha)
+
+El proyecto saltó de Boot 3.0.2 a 4.1.1 de una vez. Lo que hay que saber para no repetir el trabajo:
+
+- **Paquetes que cambiaron de sitio** en Boot 4, todos ya corregidos. Si ves documentación antigua, estos son los
+  nuevos:
+
+  | Antes (Boot 3) | Ahora (Boot 4.1) |
+  |---|---|
+  | `o.s.boot.autoconfigure.domain.EntityScan` | `o.s.boot.persistence.autoconfigure.EntityScan` |
+  | `o.s.boot.test.autoconfigure.orm.jpa.DataJpaTest` | `o.s.boot.data.jpa.test.autoconfigure.DataJpaTest` |
+  | `o.s.boot.test.autoconfigure.orm.jpa.TestEntityManager` | `o.s.boot.jpa.test.autoconfigure.TestEntityManager` |
+
+  `@DataJpaTest` y `TestEntityManager` viven ahora en artefactos propios (`spring-boot-data-jpa-test`,
+  `spring-boot-jpa-test`) que **`spring-boot-starter-test` no arrastra**: el primero está declarado en el POM, el
+  segundo llega como transitiva suya.
+- **Jackson 3 es el de serie** (`tools.jackson.*`); `databind` y `datatype-jsr310` cambiaron de paquete. Las
+  anotaciones **no**: `@JsonIgnore` y `@JsonFormat` siguen en `com.fasterxml.jackson.annotation`, por eso las entidades
+  no se tocaron. El `ObjectMapper` de `BvlReader` era un campo muerto y se eliminó; `WebClient` deserializa con los
+  codecs de Spring, no con él.
+- **`@OneToOne` → `@ManyToOne` en `Item.lectura`, `Item.accion`, `Item.moneda` y `Accion.sector`.** Hibernate 7 impone
+  un `UNIQUE` en la columna de unión de un `@OneToOne` e **ignora el `unique = false`** que estas relaciones traían;
+  Hibernate 6.1 lo respetaba. Con el modelo anterior no se puede insertar más de un `Item` por lectura y el arranque
+  fallaba en la segunda acción. El DDL resultante vuelve a ser el de antes, así que la BD H2 de producción sigue
+  siendo compatible con `ddl-auto=update`.
+- **Código muerto eliminado en la misma pasada**: el paquete `bvl.bean.*` (DTOs `@Deprecated` del scraping HTML), las
+  pantallas Swing no cableadas (`JCotizaciones`, `JTableAcciones`, `JFilterDialog`, `ExportDialog`,
+  `bvl.ui.CheckBoxNodeTreeSample`), los parsers del HTML antiguo en `BvlReader` (`extractJson`, `getFechaInicio`,
+  `getHoraInicio`, `parseLocalDate/Long/Double`, `forceTrim`) y la dependencia `jsoup`, que no se usaba desde el
+  cambio a la API JSON.
+
 ## Código muerto / legado
 
-No lo tomes como referencia y no lo extiendas sin motivo:
+Lo que queda vivo pero sin uso, no lo tomes como referencia:
 
-- `bvl.bean.*` (`ReadDataBean`, `ReadItemBean`, `LastReadBean`) — `@Deprecated`, DTOs del scraping HTML anterior a la
-  API JSON (ver README, versión 4.0.0). Sustituidos por `bvl.domain.input.*` (`StockMarket`, `BvlItem`, `Daily`).
-- `JCotizaciones`, `JTableAcciones`, `JFilterDialog`, `ExportDialog`, `bvl.ui.CheckBoxNodeTreeSample` — pantallas Swing
-  no cableadas; sus únicos puntos de entrada están comentados. `JDisplayData` sí se instancia desde `JBVL` pero muestra
-  una ventana vacía.
-- `BvlReader.extractJson`, `getFechaInicio`, `getHoraInicio`, `parseLocalDate/Long/Double`, `forceTrim` — parseo del
-  HTML antiguo, sin llamadas.
+- `JDisplayData` se instancia desde `JBVL` pero muestra una ventana vacía: la línea que le ponía contenido está
+  comentada desde que se borró `JCotizaciones`.
+- `BVL2.main()` es un runner heredado que hace `new BVL2()` sin Spring; las dependencias quedan nulas y no funciona.
+- `BVL2.dataAnt` se rellena en cada ciclo y no se lee nunca.
 
 ## Convenciones
 - Logging con SLF4J (`private final Logger logger = LoggerFactory.getLogger(getClass());`) y concatenación de strings,
