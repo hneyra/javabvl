@@ -125,7 +125,7 @@ Las incidencias y las pull requests son bienvenidas. Antes de empezar, lee
 Puedes usar, estudiar, modificar y redistribuir el programa. Si distribuyes una versión modificada,
 tienes que publicar esos cambios con la misma licencia.
 
-Copyright © Jorge Neyra
+Copyright © hneyra
 
 Este programa se distribuye con la esperanza de que sea útil, pero **SIN NINGUNA GARANTÍA**, ni
 siquiera la garantía implícita de comerciabilidad o idoneidad para un propósito particular.
