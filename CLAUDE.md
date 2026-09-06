@@ -50,8 +50,10 @@ Dos cosas no obvias:
 ## Arquitectura
 
 ```
-BvlScheduler (cron de las properties, arrancado desde el botón de JBVL)
-  └─ ventana horaria: descarta disparos fuera de [horaInicio, horaFin]
+BvlScheduler (arranca al pulsar Iniciar; la app en reposo no procesa nada)
+  ├─ sondearAhora()    → una lectura ya, sin mirar la ventana
+  └─ cron de las properties
+       └─ ventana horaria: descarta disparos fuera de [horaInicio, horaFin]
        └─ BVL2.process()
             ├─ BvlReader.readData()   → POST urlCotizaciones → BvlItem → List<Item>
             ├─ BvlReader.getFecha()   → GET urlHora → timestamp de la lectura
@@ -62,7 +64,9 @@ BvlScheduler (cron de las properties, arrancado desde el botón de JBVL)
 
 - **`HorarioSondeo`** — properties → cron + ventana. Valida al construir: una config mala impide arrancar en vez de
   fallar a media sesión.
-- **`BvlScheduler`** — `CronTrigger` sobre un `TaskScheduler` de un solo hilo. Nunca propaga excepciones: el
+- **`BvlScheduler`** — `CronTrigger` sobre un `TaskScheduler` de un solo hilo. Al pulsar Iniciar hace una **lectura
+  inmediata** (`sondearAhora()`, que **ignora la ventana** a propósito, para traer lo último publicado) y además
+  programa el cron. La app arranca en reposo: sin pulsar Iniciar no se procesa nada. Nunca propaga excepciones: el
   planificador cancelaría la tarea hasta el siguiente reinicio.
 - **`JBVL`** — única UI. Enter en los campos de horario reprograma en caliente; si lo tecleado no vale, el error va a
   la barra de estado y se conserva el horario anterior. La alerta se cierra sola y solo hay una en pantalla.
@@ -82,7 +86,7 @@ antes** que el `Item`; eso hace `saveData`.
 
 ## Tests
 
-84 tests. No tocan la red, ni la BD de desarrollo, ni abren ventanas.
+89 tests. No tocan la red, ni la BD de desarrollo, ni abren ventanas.
 
 - Nombra las clases `*Test` o `*IntegrationTest`, **nunca `*IT`**: surefire no recoge ese patrón y el test quedaría
   fuera de `./mvnw test` sin avisar.

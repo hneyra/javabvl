@@ -2,6 +2,7 @@ package bvl.schedule;
 
 import bvl.BVL2;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalTime;
 import java.util.concurrent.ScheduledFuture;
 import org.slf4j.Logger;
@@ -76,6 +77,10 @@ public class BvlScheduler {
             return;
         }
         tarea = programar();
+        // Lectura inmediata: quien pulsa Iniciar quiere los ultimos datos ya, sin esperar al
+        // primer disparo del cron. Va al hilo del planificador, nunca al EDT: es red, BD y XLS.
+        // El pool es de un solo hilo, asi que no puede solaparse con los disparos del cron.
+        taskScheduler.schedule(this::sondearAhora, Instant.now(clock));
     }
 
     /**
@@ -115,8 +120,21 @@ public class BvlScheduler {
      * planificador cancelaria la tarea y el sondeo no volveria hasta reiniciar la aplicacion.
      */
     void ejecutarSondeo() {
+        sondear(false);
+    }
+
+    /**
+     * Sondeo a demanda: **ignora la ventana horaria** a proposito. Sirve para traer lo ultimo que
+     * haya publicado la BVL en el momento de arrancar, aunque sea de madrugada o fin de semana
+     * (en ese caso devuelve el cierre del ultimo dia habil).
+     */
+    void sondearAhora() {
+        sondear(true);
+    }
+
+    private void sondear(boolean forzado) {
         LocalTime ahora = LocalTime.now(clock);
-        if (!horario.dentroDeVentana(ahora)) {
+        if (!forzado && !horario.dentroDeVentana(ahora)) {
             logger.debug("Disparo a las {} fuera de la ventana {} - {}: se omite", ahora,
                     horario.getInicio(), horario.getFin());
             return;

@@ -165,6 +165,69 @@ class BvlSchedulerTest {
   }
 
   @Test
+  @DisplayName("iniciar lanza una lectura inmediata, sin esperar al primer disparo del cron")
+  void iniciarLanzaLecturaInmediata() {
+    BvlScheduler s = schedulerA(LocalTime.of(12, 0));
+
+    s.iniciar();
+
+    // La lectura va al hilo del planificador, no al EDT: es red + BD + escritura de XLS.
+    ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
+    verify(taskScheduler).schedule(captor.capture(), any(java.time.Instant.class));
+    verifyNoInteractions(bvl);
+
+    captor.getValue().run();
+
+    verify(bvl).process();
+    verify(listener).onSondeoCompletado();
+  }
+
+  @Test
+  @DisplayName("la lectura inmediata ignora la ventana: trae los ultimos datos publicados")
+  void lecturaInmediataIgnoraLaVentana() {
+    // A las 3 de la madrugada el cron no sondearia, pero pulsar Iniciar debe leer igual.
+    schedulerA(LocalTime.of(3, 0)).sondearAhora();
+
+    verify(bvl).process();
+    verify(listener).onSondeoCompletado();
+  }
+
+  @Test
+  @DisplayName("el cron sigue respetando la ventana aunque la lectura inmediata no")
+  void elCronSigueRespetandoLaVentana() {
+    schedulerA(LocalTime.of(3, 0)).ejecutarSondeo();
+
+    verifyNoInteractions(bvl);
+  }
+
+  @Test
+  @DisplayName("un fallo en la lectura inmediata se notifica y no se propaga")
+  void falloEnLecturaInmediataNoSePropaga() {
+    BvlScheduler s = schedulerA(LocalTime.of(3, 0));
+    RuntimeException boom = new RuntimeException("sin conexion con la BVL");
+    doThrow(boom).when(bvl).process();
+
+    s.sondearAhora();
+
+    verify(listener).onSondeoFallido(boom);
+  }
+
+  @Test
+  @DisplayName("iniciar sobre un scheduler ya activo no repite la lectura inmediata")
+  void iniciarActivoNoRepiteLecturaInmediata() {
+    ScheduledFuture<?> future = mock(ScheduledFuture.class);
+    when(taskScheduler.schedule(any(Runnable.class), any(Trigger.class)))
+        .thenAnswer(i -> future);
+    BvlScheduler s = schedulerA(LocalTime.of(12, 0));
+
+    s.iniciar();
+    s.iniciar();
+
+    verify(taskScheduler, org.mockito.Mockito.times(1))
+        .schedule(any(Runnable.class), any(java.time.Instant.class));
+  }
+
+  @Test
   @DisplayName("reprogramar en marcha cancela la tarea vieja y programa el cron nuevo")
   void reprogramarEnMarcha() {
     ScheduledFuture<?> vieja = mock(ScheduledFuture.class);
