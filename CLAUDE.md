@@ -52,10 +52,10 @@ Todos los ajustes funcionales viven en properties, no en código:
 | `baseUrl`, `urlCotizaciones`, `urlHora` | endpoints BVL; los inyecta `WebClientConfiguration` y `BvlReader`                                         |
 | `xlsPath`                               | raíz donde `BvlExporter` crea `<año>/<Mes>/<fecha>.xls`                                                   |
 | `alarma`                                | umbral de variación % que dispara la alerta (valor inicial del campo de la UI)                            |
-| `horaInicio`, `intervalo`               | valores iniciales de los campos de la UI; `intervalo` (`hh:mm:ss`) es el periodo real del bucle de sondeo |
+| `horaInicio`, `horaFin`, `intervalo`    | definen el cron y la ventana de sondeo (ver `HorarioSondeo`); `intervalo` (`hh:mm:ss`) debe ser minutos enteros divisores de 60 |
 | `spring.datasource.url`                 | H2 en fichero (`jdbc:h2:file:...`), `ddl-auto=update`                                                     |
 
-`horaFin` está declarada en `application.properties` pero **no la lee nadie**: el sondeo no se detiene por hora.
+El sondeo corre **de lunes a viernes** dentro de `[horaInicio, horaFin]`. El cron cubre la rejilla del reloj para el rango de horas completo, así que dispara también antes de `horaInicio`; esos disparos los descarta la guarda de ventana de `HorarioSondeo`.
 
 `deploy/bvl.properties` es el fichero de producción y solo redefine un subconjunto; se pasa con
 `--spring.config.location`, que **sustituye** (no complementa) al `application.properties` empaquetado, así que toda
@@ -66,23 +66,28 @@ propiedad usada por el código debe existir allí.
 Flujo de un ciclo completo (`BVL2.process()`):
 
 ```
-JBVL (Swing, botón "Iniciar")
-  └─ hilo propio, bucle infinito con sleep(intervalo)
+BvlScheduler (cron derivado de las properties, arrancado desde el botón de JBVL)
+  └─ guarda de ventana: descarta los disparos fuera de [horaInicio, horaFin]
        └─ BVL2.process()
             ├─ BvlService.getLastDate()      → fecha de referencia en BD
             ├─ BvlReader.readData()          → POST urlCotizaciones → StockMarket/BvlItem → List<Item>
             ├─ BvlReader.getFecha()          → GET urlHora → Daily.updatedDate (timestamp de la lectura)
             ├─ BvlService.saveData(...)      → dedup de Accion/Moneda/Sector/Lectura + itemRepository.saveAll
             └─ BvlService.exportar(fecha,fecha) → BvlExporter → XlsWriter (POI HSSF)
-       └─ BVL2.getVariaciones(umbral) → texto para TrayIcon + JOptionPane
+       └─ SondeoListener → JBVL: getVariaciones(umbral) → TrayIcon + diálogo en el EDT
 ```
 
 Piezas y sus responsabilidades:
 
 - **`JavaBvlApplication`** — entrypoint. Declara el `JBVL` como `@Bean`, por eso la ventana existe dentro del contexto
   de Spring y puede recibir `@Value`.
-- **`JBVL`** — única UI viva. Contiene el bucle de sondeo (hilo anónimo dentro del `ActionListener` de "Iniciar"), no
-  hay scheduler de Spring.
+- **`bvl.schedule.HorarioSondeo`** — lógica pura que traduce `horaInicio`/`horaFin`/`intervalo` a expresión cron y
+  ventana horaria. Valida al construir: un properties mal puesto **impide arrancar** en vez de fallar a media sesión.
+- **`bvl.schedule.BvlScheduler`** (`@Service`) — programa el sondeo con un `CronTrigger` sobre el `TaskScheduler` de un
+  solo hilo que declara `SchedulingConfiguration`. `iniciar()`/`detener()` lo gobiernan desde la UI. Nunca deja escapar
+  una excepción: si lo hiciera, el planificador cancelaría la tarea hasta el siguiente reinicio.
+- **`JBVL`** — única UI viva. El toggle Iniciar/Detener manda sobre el scheduler; la ventana se registra como
+  `SondeoListener` y pinta el resultado en el EDT, sin bloquear el hilo del planificador.
 - **`BVL2`** (`@Service`) — orquestador del ciclo y cálculo del mensaje de alertas. Su `main()` es un runner alternativo
   heredado que instancia `new BVL2()` sin Spring: **no funciona** (las dependencias quedan nulas), ignóralo.
 - **`BvlReader`** (`@Service`) — cliente HTTP con `WebClient` reactivo bloqueado con `.block()`. Mapea `BvlItem` (DTO de
@@ -110,13 +115,15 @@ eso es lo que hace `saveData`.
 
 ## Tests
 
-52 tests en 8 clases, todos en `./mvnw test`. No tocan la red, ni la BD de desarrollo, ni abren ventanas: surefire
+75 tests en 10 clases, todos en `./mvnw test`. No tocan la red, ni la BD de desarrollo, ni abren ventanas: surefire
 fuerza `java.awt.headless=true` desde el `pom.xml` y `src/test/resources/application.properties` apunta a una H2 en
 memoria.
 
 | Clase | Cubre |
 |---|---|
-| `JBVLParseTimeTest` | `parseTime`, el periodo real del bucle de sondeo |
+| `HorarioSondeoTest` | cron y ventana horaria a partir de las properties, con sus validaciones |
+| `BvlSchedulerTest` | guarda de ventana, alta/baja de la tarea, aislamiento de fallos |
+| `BvlSchedulerWiringTest` | cableado real con Spring: properties, `TaskScheduler` y fallo al arrancar |
 | `BvlServiceDatesEntreTest` | `datesEntre`, sin Spring |
 | `BVL2GetVariacionesTest` | mensaje de alertas: umbral, signo, redacción, nulos |
 | `XlsWriterTest` | escritura de tipos, filas y hojas, releyendo con POI |
@@ -132,8 +139,9 @@ Convenciones que conviene respetar al añadir tests:
 - Las clases `@Nested` sí funcionan con el surefire 3.5.6 que trae Boot 4.1 (no era el caso con el 2.22.2 de Boot 3).
   Las clases actuales están planas por herencia de la versión anterior; no hay que aplanar las nuevas.
 - Los tests de persistencia usan `@DataJpaTest` + `@ContextConfiguration(classes = TestJpaConfig.class)`.
-  `TestJpaConfig` (en `bvl.support`) es **obligatoria**: sin ella Spring encuentra `JavaBvlApplication`, que declara un
-  `@Autowired BVL2` y el bean `JBVL`, y el contexto recortado no arranca.
+  `TestJpaConfig` (en `bvl.support`) es **obligatoria**: sin ella Spring encuentra `JavaBvlApplication`, cuyo bean
+  `frame()` construye un `JFrame` y exige `BVL2` y `BvlScheduler`; un contexto recortado a JPA no tiene ninguno de los
+  dos y no arranca.
 - `BvlReaderIntegrationTest` **no llama a `reader.init()`** a propósito: ese `@PostConstruct` desactiva la validación de
   certificados TLS de toda la JVM.
 - Los tests marcados `CARACTERIZACION:` fijan el comportamiento actual, incluido el que parece un bug. Están enlazados
@@ -159,8 +167,9 @@ Convenciones que conviene respetar al añadir tests:
 - **`BVL2.getVariaciones` formatea con el locale por defecto de la JVM**: en una máquina `de_DE` el mensaje sale con
   coma decimal (`subió 3,5%`) y en `en_US` con punto. El test fija el locale para no depender de la máquina.
 - **`BvlExporter.closeResources()` está vacía** (cuerpo comentado); los `Workbook`/streams no se cierran explícitamente.
-- **`BvlReader.readData()` muestra un `JOptionPane` en caso de error de red** — es código de UI dentro de un servicio;
-  cualquier uso no interactivo (test, batch) se quedará bloqueado en el diálogo.
+- **`BvlReader` ya no traga los errores de red**: `readData()` y `getFecha()` lanzan `BvlLecturaException` en lugar de
+  devolver lista vacía o `null`. Quien orquesta decide cómo avisar; `BvlScheduler` lo captura, lo registra y lo pasa al
+  `SondeoListener`. No vuelvas a meter un diálogo modal en un servicio: bloquearía todos los sondeos siguientes.
 
 ## Migración a Spring Boot 4.1 (hecha)
 

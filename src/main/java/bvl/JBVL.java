@@ -1,5 +1,8 @@
 package bvl;
 
+import bvl.schedule.BvlScheduler;
+import bvl.schedule.HorarioSondeo;
+import bvl.schedule.SondeoListener;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Configurable;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,7 +14,6 @@ import java.awt.*;
 import java.awt.TrayIcon.MessageType;
 import java.awt.event.*;
 import java.net.URL;
-import java.util.StringTokenizer;
 
 @SuppressWarnings("serial")
 @Configurable
@@ -55,17 +57,14 @@ public class JBVL extends JFrame {
 
     private BVL2 bvl;
 
-    @Value("${horaInicio}")
-    private String horaInicio;
-
-    @Value("${intervalo}")
-    private String intervalo;
+    private BvlScheduler scheduler;
 
     @Value("${alarma}")
     private String alarma;
 
-    public JBVL(BVL2 bvl) {
+    public JBVL(BVL2 bvl, BvlScheduler scheduler) {
         this.bvl = bvl;
+        this.scheduler = scheduler;
         // setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
         initComponents();
@@ -86,27 +85,58 @@ public class JBVL extends JFrame {
         centerAndSize();
     }
 
-    /**
-     * Encuentra el total de segundos de contenidos en una hora hh:mm:ss por ejemplo 2:15:23 = 2*3600
-     * + 15*60 + 23
-     */
-    public static int parseTime(String time) {
-        StringTokenizer strTk = new StringTokenizer(time, ":");
-        int ans = 0, i = 2;
-
-        while (strTk.hasMoreElements()) {
-            ans += Math.pow(60, i--) * Integer.parseInt(strTk.nextElement().toString());
-        }
-        // System.out.println(time + "=" + ans);
-
-        return ans;
-    }
-
     @PostConstruct
     public void init() {
-        txtHoraInicio.setText(horaInicio);
-        txtIntervalo.setText(intervalo);
+        HorarioSondeo horario = scheduler.getHorario();
+        // Solo informativos: la planificacion la manda el cron, no estos campos. Se dejan no
+        // editables para que la ventana no aparente controlar algo que ya no controla.
+        txtHoraInicio.setText(horario.getInicio() + " - " + horario.getFin());
+        txtHoraInicio.setEditable(false);
+        txtIntervalo.setText("cada " + horario.getIntervaloMinutos() + " min (L-V)");
+        txtIntervalo.setEditable(false);
         txtAlarma.setText(alarma);
+
+        scheduler.setListener(new SondeoListener() {
+            @Override
+            public void onSondeoCompletado() {
+                mostrarAlertas();
+            }
+
+            @Override
+            public void onSondeoFallido(Throwable error) {
+                notificarFallo(error);
+            }
+        });
+    }
+
+    /**
+     * Presenta el resultado del sondeo. Se invoca desde el hilo del planificador, asi que todo
+     * el trabajo de Swing se delega al EDT: el dialogo modal bloqueaba antes el ciclo entero y
+     * el intervalo no empezaba a contar hasta que alguien lo cerraba.
+     */
+    private void mostrarAlertas() {
+        final String[] msg;
+        try {
+            msg = bvl.getVariaciones(Double.parseDouble(txtAlarma.getText()));
+        } catch (NumberFormatException e) {
+            notificarFallo(e);
+            return;
+        }
+        if (trayIcon != null) {
+            trayIcon.displayMessage("Empresas que variaron: " + bvl.getFecha(), msg[0],
+                    MessageType.WARNING);
+        }
+        SwingUtilities.invokeLater(
+                () -> JOptionPane.showMessageDialog(JBVL.this, msg[1], "Alertas", 0));
+    }
+
+    /** Los fallos se avisan por el tray, que no bloquea, en lugar de por un dialogo modal. */
+    private void notificarFallo(Throwable error) {
+        statusBar.setText("Error: " + error.getMessage());
+        if (trayIcon != null) {
+            trayIcon.displayMessage("Fallo el sondeo", String.valueOf(error.getMessage()),
+                    MessageType.ERROR);
+        }
     }
 
     public void centerAndSize() {
@@ -228,26 +258,16 @@ public class JBVL extends JFrame {
         btnIniciar.setText("Iniciar");
         btnIniciar.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
-                btnIniciar.setEnabled(!btnIniciar.isEnabled());
-                new Thread() {
-                    @Override
-                    public void run() {
-                        long tiempo = parseTime(txtIntervalo.getText());
-                        while (true) {
-                            try {
-                                bvl.process();
-                                Double alarma = Double.parseDouble(txtAlarma.getText());
-                                String msg[] = bvl.getVariaciones(alarma);
-                                trayIcon.displayMessage("Empresas que variaron: " + bvl.getFecha(), msg[0],
-                                        MessageType.WARNING);
-                                JOptionPane.showMessageDialog(JBVL.this, msg[1], "Alertas", 0);
-                                sleep(1000 * tiempo);
-                            } catch (InterruptedException e) {
-                                e.printStackTrace();
-                            }
-                        }
-                    }
-                }.start();
+                if (btnIniciar.isSelected()) {
+                    scheduler.iniciar();
+                    btnIniciar.setText("Detener");
+                    statusBar.setText("Sondeando " + scheduler.getHorario().getInicio() + " - "
+                            + scheduler.getHorario().getFin());
+                } else {
+                    scheduler.detener();
+                    btnIniciar.setText("Iniciar");
+                    statusBar.setText("Detenido");
+                }
             }
         });
 

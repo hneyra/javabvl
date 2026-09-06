@@ -20,7 +20,6 @@ import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
-import javax.swing.*;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
@@ -115,12 +114,11 @@ public class BvlReader {
             logger.debug("---->TOTAL Datos leidos: " + ans.size());
             logger.debug("Datos leidos: " + ans);
         } catch (Throwable ce) {
-            String msg = "No hay conexión con: http:\\www.bvl.com.pe\n\n"
-                    + "Por favor revise si tiene conexión a internet\n"
-                    + "o si dicha web está disponble.\n\nLuego reinicie" + " el programa.";
-            JOptionPane.showMessageDialog(null, msg);
-            logger.error("Error de Conexión: " + ce.getMessage(), ce);
-            ce.printStackTrace();
+            // Sin dialogo modal aqui: este servicio corre en el hilo del planificador y un
+            // JOptionPane lo dejaria colgado hasta que alguien lo cerrase, bloqueando todos los
+            // sondeos siguientes. El error sube y lo presenta la capa de UI sin bloquear.
+            throw new BvlLecturaException(
+                    "No se pudo leer las cotizaciones de " + urlCotizaciones + ": " + ce.getMessage(), ce);
         }
         return ans;
     }
@@ -167,9 +165,9 @@ public class BvlReader {
             logger.debug("Fecha de lectura: " + fecha);
             return fecha;
         } catch (Throwable e) {
-            logger.error(e.getMessage(), e);
+            throw new BvlLecturaException(
+                    "No se pudo leer la fecha de lectura de " + urlHora + ": " + e.getMessage(), e);
         }
-        return null;
     }
 
 }
