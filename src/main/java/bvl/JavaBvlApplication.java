@@ -13,17 +13,17 @@ import org.springframework.context.annotation.Bean;
 @SpringBootApplication
 public class JavaBvlApplication {
 
-  @Autowired
-  BVL2 bvl;
+    @Autowired
+    BVL2 bvl;
 
-  public static void main(String[] args) {
-    new SpringApplicationBuilder(JavaBvlApplication.class).headless(false).run(args);
-  }
+    public static void main(String[] args) {
+        new SpringApplicationBuilder(JavaBvlApplication.class).headless(false).run(args);
+    }
 
-  @Bean
-  public JBVL frame() {
-    JBVL jbvl = new JBVL(bvl);
-    jbvl.setVisible(true);
-    return jbvl;
-  }
+    @Bean
+    public JBVL frame() {
+        JBVL jbvl = new JBVL(bvl);
+        jbvl.setVisible(true);
+        return jbvl;
+    }
 }

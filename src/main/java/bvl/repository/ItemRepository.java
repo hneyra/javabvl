@@ -2,12 +2,13 @@ package bvl.repository;
 
 import bvl.domain.Item;
 import bvl.domain.Lectura;
-import java.util.List;
 import org.springframework.data.repository.CrudRepository;
+
+import java.util.List;
 
 public interface ItemRepository extends CrudRepository<Item, Long> {
 
-  List<Item> findByLectura(Lectura lectura);
+    List<Item> findByLectura(Lectura lectura);
 
-  List<Item> findByLecturaIn(List<Lectura> lecturas);
+    List<Item> findByLecturaIn(List<Lectura> lecturas);
 }

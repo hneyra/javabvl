@@ -41,27 +41,54 @@ public class BvlReader {
 //    reactor.netty.http.client.HttpClientOperations hco;
 
     public static int DEFAULT_TIMEOUT_MS = 300_000;
+    private final Logger logger = LoggerFactory.getLogger(getClass());
+    private final ObjectMapper objectMapper = new ObjectMapper();
     DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     DateTimeFormatter dateTimeformatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
-
-    private final Logger logger = LoggerFactory.getLogger(getClass());
-
     @Value("${urlCotizaciones}")
     private String urlCotizaciones;
-
     @Value("${urlHora}")
     private String urlHora;
-
     @Autowired
     private WebClient webClient;
-
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     // public static void main(String[] args) {
     // new BVLReader().leerArchivo();
     // }
 
     public BvlReader() {
+    }
+
+    private static void disableSSLCertificateChecking() {
+        TrustManager[] trustAllCerts = new TrustManager[]{new X509TrustManager() {
+            public X509Certificate[] getAcceptedIssuers() {
+                return null;
+            }
+
+            @Override
+            public void checkClientTrusted(X509Certificate[] arg0, String arg1)
+                    throws CertificateException {
+                // Not implemented
+            }
+
+            @Override
+            public void checkServerTrusted(X509Certificate[] arg0, String arg1)
+                    throws CertificateException {
+                // Not implemented
+            }
+        }};
+
+        try {
+            SSLContext sc = SSLContext.getInstance("TLS");
+
+            sc.init(null, trustAllCerts, new java.security.SecureRandom());
+
+            HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
+        } catch (KeyManagementException e) {
+            e.printStackTrace();
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
     }
 
     @PostConstruct
@@ -94,7 +121,7 @@ public class BvlReader {
                     .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                     .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE).
                     body(Mono.just(body), Map.class).
-                     retrieve().
+                    retrieve().
                     bodyToMono(new ParameterizedTypeReference<StockMarket>() {
                     }).
                     doOnError(throwable -> throwable.printStackTrace());
@@ -185,38 +212,6 @@ public class BvlReader {
             return text.substring(pos + 1, text.length());
         }
         return null;
-    }
-
-    private static void disableSSLCertificateChecking() {
-        TrustManager[] trustAllCerts = new TrustManager[]{new X509TrustManager() {
-            public X509Certificate[] getAcceptedIssuers() {
-                return null;
-            }
-
-            @Override
-            public void checkClientTrusted(X509Certificate[] arg0, String arg1)
-                    throws CertificateException {
-                // Not implemented
-            }
-
-            @Override
-            public void checkServerTrusted(X509Certificate[] arg0, String arg1)
-                    throws CertificateException {
-                // Not implemented
-            }
-        }};
-
-        try {
-            SSLContext sc = SSLContext.getInstance("TLS");
-
-            sc.init(null, trustAllCerts, new java.security.SecureRandom());
-
-            HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
-        } catch (KeyManagementException e) {
-            e.printStackTrace();
-        } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
-        }
     }
 
     private String forceTrim(String text) {

@@ -9,7 +9,7 @@ import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 
 @Configuration
-public class WebClientConfiguration  {
+public class WebClientConfiguration {
     @Value("${baseUrl}")
     private String baseUrl;
 

@@ -3,7 +3,7 @@ package bvl.domain.input;
 import java.util.List;
 
 public class StockMarket {
-      private Integer up;
+    private Integer up;
     private Integer down;
     private Integer equal;
 

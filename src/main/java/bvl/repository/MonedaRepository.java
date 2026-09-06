@@ -5,5 +5,5 @@ import org.springframework.data.repository.CrudRepository;
 
 public interface MonedaRepository extends CrudRepository<Moneda, Long> {
 
-  Moneda findByNombre(String nombre);
+    Moneda findByNombre(String nombre);
 }
