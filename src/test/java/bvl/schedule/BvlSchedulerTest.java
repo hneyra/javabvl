@@ -165,6 +165,51 @@ class BvlSchedulerTest {
   }
 
   @Test
+  @DisplayName("reprogramar en marcha cancela la tarea vieja y programa el cron nuevo")
+  void reprogramarEnMarcha() {
+    ScheduledFuture<?> vieja = mock(ScheduledFuture.class);
+    ScheduledFuture<?> nueva = mock(ScheduledFuture.class);
+    when(taskScheduler.schedule(any(Runnable.class), any(Trigger.class)))
+        .thenAnswer(i -> vieja).thenAnswer(i -> nueva);
+    BvlScheduler s = schedulerA(LocalTime.of(12, 0));
+    s.iniciar();
+
+    s.reprogramar(HorarioSondeo.of("10:00:00", "15:00", "00:05:00"));
+
+    verify(vieja).cancel(false);
+    ArgumentCaptor<Trigger> captor = ArgumentCaptor.forClass(Trigger.class);
+    verify(taskScheduler, org.mockito.Mockito.times(2))
+        .schedule(any(Runnable.class), captor.capture());
+    assertThat(((CronTrigger) captor.getAllValues().get(1)).getExpression())
+        .isEqualTo("0 0/5 10-15 * * MON-FRI");
+    assertThat(s.isActivo()).isTrue();
+  }
+
+  @Test
+  @DisplayName("reprogramar en reposo cambia el horario sin programar nada")
+  void reprogramarEnReposo() {
+    BvlScheduler s = schedulerA(LocalTime.of(12, 0));
+
+    s.reprogramar(HorarioSondeo.of("10:00:00", "15:00", "00:05:00"));
+
+    verifyNoInteractions(taskScheduler);
+    assertThat(s.isActivo()).isFalse();
+    assertThat(s.getHorario().toCron()).isEqualTo("0 0/5 10-15 * * MON-FRI");
+  }
+
+  @Test
+  @DisplayName("la ventana nueva manda inmediatamente sobre la guarda")
+  void reprogramarCambiaLaGuardaDeVentana() {
+    // A las 12:00 la ventana vieja (9:40-16:30) sondearia; la nueva (9:00-11:00) ya no.
+    BvlScheduler s = schedulerA(LocalTime.of(12, 0));
+    s.reprogramar(HorarioSondeo.of("9:00:00", "11:00", "00:05:00"));
+
+    s.ejecutarSondeo();
+
+    verifyNoInteractions(bvl);
+  }
+
+  @Test
   @DisplayName("sin listener registrado el sondeo sigue funcionando")
   void sinListenerNoRevienta() {
     Clock reloj = Clock.fixed(Instant.parse("2024-01-16T17:00:00Z"), ZONA);

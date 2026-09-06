@@ -37,7 +37,7 @@ public class BvlScheduler {
 
     private final BVL2 bvl;
     private final TaskScheduler taskScheduler;
-    private final HorarioSondeo horario;
+    private volatile HorarioSondeo horario;
     private final Clock clock;
 
     private volatile SondeoListener listener = SIN_LISTENER;
@@ -75,10 +75,27 @@ public class BvlScheduler {
         if (isActivo()) {
             return;
         }
+        tarea = programar();
+    }
+
+    /**
+     * Cambia el horario sin reiniciar la aplicacion. Si hay sondeo en marcha, se cancela la tarea
+     * y se programa otra con el cron nuevo; si esta en reposo, el horario queda listo para el
+     * proximo {@link #iniciar()}.
+     */
+    public synchronized void reprogramar(HorarioSondeo nuevo) {
+        this.horario = nuevo;
+        if (isActivo()) {
+            tarea.cancel(false);
+            tarea = programar();
+        }
+    }
+
+    private ScheduledFuture<?> programar() {
         String cron = horario.toCron();
         logger.info("Programando sondeo: {} (ventana {} - {})", cron, horario.getInicio(),
                 horario.getFin());
-        tarea = taskScheduler.schedule(this::ejecutarSondeo, new CronTrigger(cron));
+        return taskScheduler.schedule(this::ejecutarSondeo, new CronTrigger(cron));
     }
 
     public synchronized void detener() {

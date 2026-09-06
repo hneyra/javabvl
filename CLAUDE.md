@@ -53,13 +53,15 @@ Todos los ajustes funcionales viven en properties, no en código:
 | `xlsPath`                               | raíz donde `BvlExporter` crea `<año>/<Mes>/<fecha>.xls`                                                   |
 | `alarma`                                | umbral de variación % que dispara la alerta (valor inicial del campo de la UI)                            |
 | `horaInicio`, `horaFin`, `intervalo`    | definen el cron y la ventana de sondeo (ver `HorarioSondeo`); `intervalo` (`hh:mm:ss`) debe ser minutos enteros divisores de 60 |
+| `alertaTimeout`                         | cuánto aguanta abierta la alerta antes de cerrarse sola (`hh:mm:ss`); si falta, 10 min                     |
 | `spring.datasource.url`                 | H2 en fichero (`jdbc:h2:file:...`), `ddl-auto=update`                                                     |
 
 El sondeo corre **de lunes a viernes** dentro de `[horaInicio, horaFin]`. El cron cubre la rejilla del reloj para el rango de horas completo, así que dispara también antes de `horaInicio`; esos disparos los descarta la guarda de ventana de `HorarioSondeo`.
 
-`deploy/bvl.properties` es el fichero de producción y solo redefine un subconjunto; se pasa con
-`--spring.config.location`, que **sustituye** (no complementa) al `application.properties` empaquetado, así que toda
-propiedad usada por el código debe existir allí.
+`deploy/bvl.properties` es el fichero de producción; se pasa con `--spring.config.location`, que **sustituye** (no
+complementa) al `application.properties` empaquetado, así que toda propiedad sin valor por defecto debe existir allí.
+`DeployPropertiesTest` lo comprueba en el build: si añades un `@Value("${...}")` sin default, añádelo también a ese
+fichero y a la lista del test, o producción dejará de arrancar sin que ningún otro test se entere.
 
 ## Arquitectura
 
@@ -87,7 +89,10 @@ Piezas y sus responsabilidades:
   solo hilo que declara `SchedulingConfiguration`. `iniciar()`/`detener()` lo gobiernan desde la UI. Nunca deja escapar
   una excepción: si lo hiciera, el planificador cancelaría la tarea hasta el siguiente reinicio.
 - **`JBVL`** — única UI viva. El toggle Iniciar/Detener manda sobre el scheduler; la ventana se registra como
-  `SondeoListener` y pinta el resultado en el EDT, sin bloquear el hilo del planificador.
+  `SondeoListener` y pinta el resultado en el EDT, sin bloquear el hilo del planificador. Los campos de horario son
+  editables: Enter en cualquiera de ellos llama a `scheduler.reprogramar(...)` y la cadencia cambia **sin reiniciar**.
+  Si lo tecleado no vale, el error va a la barra de estado y se conserva el horario anterior. La alerta se cierra sola
+  pasado `alertaTimeout` y solo hay una en pantalla: una lectura nueva descarta la anterior, ya obsoleta.
 - **`BVL2`** (`@Service`) — orquestador del ciclo y cálculo del mensaje de alertas. Su `main()` es un runner alternativo
   heredado que instancia `new BVL2()` sin Spring: **no funciona** (las dependencias quedan nulas), ignóralo.
 - **`BvlReader`** (`@Service`) — cliente HTTP con `WebClient` reactivo bloqueado con `.block()`. Mapea `BvlItem` (DTO de
@@ -115,7 +120,7 @@ eso es lo que hace `saveData`.
 
 ## Tests
 
-75 tests en 10 clases, todos en `./mvnw test`. No tocan la red, ni la BD de desarrollo, ni abren ventanas: surefire
+84 tests en 11 clases, todos en `./mvnw test`. No tocan la red, ni la BD de desarrollo, ni abren ventanas: surefire
 fuerza `java.awt.headless=true` desde el `pom.xml` y `src/test/resources/application.properties` apunta a una H2 en
 memoria.
 
@@ -124,6 +129,7 @@ memoria.
 | `HorarioSondeoTest` | cron y ventana horaria a partir de las properties, con sus validaciones |
 | `BvlSchedulerTest` | guarda de ventana, alta/baja de la tarea, aislamiento de fallos |
 | `BvlSchedulerWiringTest` | cableado real con Spring: properties, `TaskScheduler` y fallo al arrancar |
+| `DeployPropertiesTest` | que `deploy/bvl.properties` declare todo lo obligatorio y con valores válidos |
 | `BvlServiceDatesEntreTest` | `datesEntre`, sin Spring |
 | `BVL2GetVariacionesTest` | mensaje de alertas: umbral, signo, redacción, nulos |
 | `XlsWriterTest` | escritura de tipos, filas y hojas, releyendo con POI |

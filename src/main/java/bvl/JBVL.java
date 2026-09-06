@@ -4,6 +4,8 @@ import bvl.schedule.BvlScheduler;
 import bvl.schedule.HorarioSondeo;
 import bvl.schedule.SondeoListener;
 import jakarta.annotation.PostConstruct;
+
+import java.time.Duration;
 import org.springframework.beans.factory.annotation.Configurable;
 import org.springframework.beans.factory.annotation.Value;
 
@@ -27,6 +29,8 @@ public class JBVL extends JFrame {
 
     private JLabel lblHoraInicio;
 
+    private JLabel lblHoraFin;
+
     private JLabel lblIntervalo;
 
     private JLabel lblVariacion;
@@ -45,6 +49,8 @@ public class JBVL extends JFrame {
 
     private JTextField txtHoraInicio;
 
+    private JTextField txtHoraFin;
+
     private JTextField txtIntervalo;
 
     private JTextField txtAlarma;
@@ -61,6 +67,17 @@ public class JBVL extends JFrame {
 
     @Value("${alarma}")
     private String alarma;
+
+    /**
+     * Cuanto aguanta abierta una alerta antes de cerrarse sola. Se configura en
+     * {@code deploy/bvl.properties}; el default cubre el caso de que falte, porque
+     * {@code --spring.config.location} sustituye al {@code application.properties} empaquetado.
+     */
+    @Value("${alertaTimeout:00:10:00}")
+    private String alertaTimeout;
+
+    /** Alerta en pantalla, si la hay. Solo se toca desde el EDT. */
+    private JDialog alertaVisible;
 
     public JBVL(BVL2 bvl, BvlScheduler scheduler) {
         this.bvl = bvl;
@@ -87,14 +104,14 @@ public class JBVL extends JFrame {
 
     @PostConstruct
     public void init() {
-        HorarioSondeo horario = scheduler.getHorario();
-        // Solo informativos: la planificacion la manda el cron, no estos campos. Se dejan no
-        // editables para que la ventana no aparente controlar algo que ya no controla.
-        txtHoraInicio.setText(horario.getInicio() + " - " + horario.getFin());
-        txtHoraInicio.setEditable(false);
-        txtIntervalo.setText("cada " + horario.getIntervaloMinutos() + " min (L-V)");
-        txtIntervalo.setEditable(false);
+        volcarHorarioEnCampos(scheduler.getHorario());
         txtAlarma.setText(alarma);
+
+        // Enter en cualquiera de los tres campos aplica el horario en caliente.
+        ActionListener aplicar = e -> aplicarHorario();
+        txtHoraInicio.addActionListener(aplicar);
+        txtHoraFin.addActionListener(aplicar);
+        txtIntervalo.addActionListener(aplicar);
 
         scheduler.setListener(new SondeoListener() {
             @Override
@@ -107,6 +124,35 @@ public class JBVL extends JFrame {
                 notificarFallo(error);
             }
         });
+    }
+
+    private void volcarHorarioEnCampos(HorarioSondeo horario) {
+        txtHoraInicio.setText(horario.getInicio().toString());
+        txtHoraFin.setText(horario.getFin().toString());
+        txtIntervalo.setText(String.format("%02d:%02d:00", horario.getIntervaloMinutos() / 60,
+                horario.getIntervaloMinutos() % 60));
+    }
+
+    /**
+     * Lee los tres campos y reprograma el sondeo sin reiniciar. Si el usuario escribe algo
+     * invalido se avisa en la barra de estado y se conserva el horario anterior: mas vale seguir
+     * sondeando con la cadencia vieja que quedarse sin sondeo.
+     */
+    private void aplicarHorario() {
+        HorarioSondeo nuevo;
+        try {
+            nuevo = HorarioSondeo.of(txtHoraInicio.getText(), txtHoraFin.getText(),
+                    txtIntervalo.getText());
+        } catch (IllegalArgumentException e) {
+            statusBar.setText("Horario no aplicado: " + e.getMessage());
+            volcarHorarioEnCampos(scheduler.getHorario());
+            return;
+        }
+        scheduler.reprogramar(nuevo);
+        volcarHorarioEnCampos(nuevo);
+        statusBar.setText((scheduler.isActivo() ? "Sondeando " : "Horario listo ")
+                + nuevo.getInicio() + " - " + nuevo.getFin() + ", cada "
+                + nuevo.getIntervaloMinutos() + " min");
     }
 
     /**
@@ -126,8 +172,48 @@ public class JBVL extends JFrame {
             trayIcon.displayMessage("Empresas que variaron: " + bvl.getFecha(), msg[0],
                     MessageType.WARNING);
         }
-        SwingUtilities.invokeLater(
-                () -> JOptionPane.showMessageDialog(JBVL.this, msg[1], "Alertas", 0));
+        SwingUtilities.invokeLater(() -> mostrarAlertaConAutoCierre(msg[1]));
+    }
+
+    /**
+     * Muestra la alerta y la cierra sola pasado {@code alertaTimeout} si nadie la atiende, para
+     * que un equipo desatendido no acumule dialogos ni deje uno abierto toda la sesion.
+     *
+     * <p>Solo hay una alerta en pantalla: al llegar una lectura nueva se descarta la anterior, que
+     * ya esta obsoleta. Con intervalo de 5 minutos y timeout de 10 se solaparian dos.
+     *
+     * <p>Corre en el EDT. El dialogo es modal y abre un bucle de eventos anidado, asi que el
+     * {@link Timer} sigue disparando y puede cerrarlo.
+     */
+    private void mostrarAlertaConAutoCierre(String mensajeHtml) {
+        if (alertaVisible != null) {
+            alertaVisible.dispose();
+            alertaVisible = null;
+        }
+        long millis;
+        try {
+            millis = HorarioSondeo.parseDuracion(alertaTimeout, "alertaTimeout").toMillis();
+        } catch (IllegalArgumentException e) {
+            statusBar.setText("alertaTimeout invalido, se usan 10 min: " + e.getMessage());
+            millis = Duration.ofMinutes(10).toMillis();
+        }
+
+        JOptionPane panel = new JOptionPane(mensajeHtml, JOptionPane.ERROR_MESSAGE);
+        JDialog dialogo = panel.createDialog(JBVL.this, "Alertas");
+        alertaVisible = dialogo;
+
+        Timer cierre = new Timer((int) Math.min(millis, Integer.MAX_VALUE), e -> dialogo.dispose());
+        cierre.setRepeats(false);
+        cierre.start();
+        try {
+            dialogo.setVisible(true);
+        } finally {
+            cierre.stop();
+            dialogo.dispose();
+            if (alertaVisible == dialogo) {
+                alertaVisible = null;
+            }
+        }
     }
 
     /** Los fallos se avisan por el tray, que no bloquea, en lugar de por un dialogo modal. */
@@ -140,7 +226,7 @@ public class JBVL extends JFrame {
     }
 
     public void centerAndSize() {
-        setSize(250, 250);
+        setSize(280, 290);
 
         Toolkit toolkit = Toolkit.getDefaultToolkit();
         Dimension screenSize = toolkit.getScreenSize();
@@ -215,6 +301,8 @@ public class JBVL extends JFrame {
         panelContent = new JPanel();
         lblHoraInicio = new JLabel();
         txtHoraInicio = new JTextField();
+        lblHoraFin = new JLabel();
+        txtHoraFin = new JTextField();
         lblIntervalo = new JLabel();
         txtIntervalo = new JTextField();
         lblVariacion = new JLabel();
@@ -237,12 +325,17 @@ public class JBVL extends JFrame {
             }
         });
 
-        panelContent.setLayout(new java.awt.GridLayout(5, 2, 10, 10));
+        panelContent.setLayout(new java.awt.GridLayout(6, 2, 10, 10));
 
         lblHoraInicio.setText("Hora de Inicio");
         panelContent.add(lblHoraInicio);
 
         panelContent.add(txtHoraInicio);
+
+        lblHoraFin.setText("Hora de Fin");
+        panelContent.add(lblHoraFin);
+
+        panelContent.add(txtHoraFin);
 
         lblIntervalo.setText("Intervalo");
         panelContent.add(lblIntervalo);
@@ -259,6 +352,7 @@ public class JBVL extends JFrame {
         btnIniciar.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 if (btnIniciar.isSelected()) {
+                    aplicarHorario();
                     scheduler.iniciar();
                     btnIniciar.setText("Detener");
                     statusBar.setText("Sondeando " + scheduler.getHorario().getInicio() + " - "

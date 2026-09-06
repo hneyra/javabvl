@@ -51,14 +51,21 @@ public final class HorarioSondeo {
             return LocalTime.parse(valor.trim(), FORMATO_HORA);
         } catch (DateTimeParseException | NullPointerException e) {
             throw new IllegalArgumentException(
-                    "La propiedad " + propiedad + " no es una hora valida: '" + valor
+                    "La propiedad " + propiedad + " no tiene un formato valido: '" + valor
                             + "'. Formato esperado H:mm o H:mm:ss", e);
         }
     }
 
+    /**
+     * Lee una propiedad de duracion escrita como {@code hh:mm:ss}, el mismo formato que usan las
+     * horas del fichero. Publico porque {@code alertaTimeout} se lee igual.
+     */
+    public static Duration parseDuracion(String valor, String propiedad) {
+        return Duration.between(LocalTime.MIDNIGHT, parseHora(valor, propiedad));
+    }
+
     private static int parseIntervalo(String intervalo) {
-        LocalTime t = parseHora(intervalo, "intervalo");
-        Duration d = Duration.between(LocalTime.MIDNIGHT, t);
+        Duration d = parseDuracion(intervalo, "intervalo");
         if (d.toSecondsPart() != 0) {
             throw new IllegalArgumentException(
                     "La propiedad intervalo ('" + intervalo + "') debe ser minutos enteros, sin segundos");

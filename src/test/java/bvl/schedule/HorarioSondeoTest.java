@@ -115,6 +115,25 @@ class HorarioSondeoTest {
   }
 
   @Test
+  @DisplayName("parseDuracion lee el mismo formato hh:mm:ss que las horas")
+  void parseDuracion() {
+    assertThat(HorarioSondeo.parseDuracion("00:15:00", "alertaTimeout"))
+        .isEqualTo(java.time.Duration.ofMinutes(15));
+    assertThat(HorarioSondeo.parseDuracion("01:30:00", "alertaTimeout"))
+        .isEqualTo(java.time.Duration.ofMinutes(90));
+    assertThat(HorarioSondeo.parseDuracion("00:00:30", "alertaTimeout"))
+        .isEqualTo(java.time.Duration.ofSeconds(30));
+  }
+
+  @Test
+  @DisplayName("parseDuracion nombra la propiedad culpable cuando el valor no vale")
+  void parseDuracionInvalida() {
+    assertThatThrownBy(() -> HorarioSondeo.parseDuracion("quince minutos", "alertaTimeout"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("alertaTimeout");
+  }
+
+  @Test
   @DisplayName("una hora mal escrita se rechaza nombrando la propiedad culpable")
   void horaMalFormada() {
     assertThatThrownBy(() -> HorarioSondeo.of("las nueve", "16:30", "00:05:00"))
