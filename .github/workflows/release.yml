@@ -1,0 +1,109 @@
+name: Release
+
+# Cada push a main publica una release. El propio workflow sube el patch del POM y commitea el
+# cambio; ese commit no vuelve a disparar el workflow por dos motivos independientes: GitHub no
+# encadena ejecuciones a partir de pushes hechos con GITHUB_TOKEN, y ademas el mensaje lleva
+# [skip ci] (que es lo que protege si alguien cambia el token por un PAT).
+on:
+  push:
+    branches: [main]
+
+# Dos pushes seguidos no pueden competir por el mismo tag ni por el push a main.
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Historia completa: hace falta para crear el tag y para que el push no sea shallow.
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configurar JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Tests
+        # La suite es headless-safe: surefire fuerza java.awt.headless=true desde el pom.
+        run: ./mvnw --batch-mode test
+
+      - name: Calcular la version nueva
+        id: version
+        run: |
+          set -euo pipefail
+          ACTUAL=$(./mvnw -q help:evaluate -Dexpression=project.version -DforceStdout)
+          IFS=. read -r MAYOR MENOR PATCH <<< "$ACTUAL"
+          NUEVA="$MAYOR.$MENOR.$((PATCH + 1))"
+          echo "anterior=$ACTUAL" >> "$GITHUB_OUTPUT"
+          echo "nueva=$NUEVA"     >> "$GITHUB_OUTPUT"
+          echo "tag=v$NUEVA"      >> "$GITHUB_OUTPUT"
+          echo "Publicando $ACTUAL -> $NUEVA"
+
+      - name: Subir la version en el POM y en ejecutar.bat
+        env:
+          ANTERIOR: ${{ steps.version.outputs.anterior }}
+          NUEVA: ${{ steps.version.outputs.nueva }}
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode versions:set -DnewVersion="$NUEVA" -DgenerateBackupPoms=false
+          # ejecutar.bat fija el nombre del jar a mano: si no se actualiza, apunta al jar viejo.
+          sed -i "s/bvl-$ANTERIOR\.jar/bvl-$NUEVA.jar/" deploy/ejecutar.bat
+          grep -q "bvl-$NUEVA.jar" deploy/ejecutar.bat
+
+      - name: Empaquetar
+        run: ./mvnw --batch-mode -DskipTests package
+
+      - name: Armar el paquete listo para ejecutar
+        id: paquete
+        env:
+          NUEVA: ${{ steps.version.outputs.nueva }}
+        run: |
+          set -euo pipefail
+          DIR="bvl-$NUEVA"
+          mkdir -p "$DIR"
+          cp "target/bvl-$NUEVA.jar" "$DIR/"
+          cp deploy/bvl.properties deploy/ejecutar.bat "$DIR/"
+          zip -r "$DIR.zip" "$DIR"
+          echo "zip=$DIR.zip" >> "$GITHUB_OUTPUT"
+          echo "jar=target/bvl-$NUEVA.jar" >> "$GITHUB_OUTPUT"
+
+      - name: Commitear la version y etiquetar
+        env:
+          NUEVA: ${{ steps.version.outputs.nueva }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pom.xml deploy/ejecutar.bat
+          # [skip ci] evita que este commit vuelva a disparar el workflow.
+          git commit -m "chore: release $NUEVA [skip ci]"
+          git tag -a "$TAG" -m "Release $NUEVA"
+          git push origin HEAD:main
+          git push origin "$TAG"
+
+      - name: Publicar la release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          NUEVA: ${{ steps.version.outputs.nueva }}
+          JAR: ${{ steps.paquete.outputs.jar }}
+          ZIP: ${{ steps.paquete.outputs.zip }}
+        run: |
+          set -euo pipefail
+          # --generate-notes ya deduce solo el tag anterior para el rango de cambios.
+          gh release create "$TAG" "$JAR" "$ZIP" \
+            --title "JavaBVL $NUEVA" \
+            --generate-notes

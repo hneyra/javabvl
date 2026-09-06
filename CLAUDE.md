@@ -43,6 +43,26 @@ java -jar target/bvl-4.6.0.jar --spring.config.location=deploy/bvl.properties
 - `xlsPath` en `application.properties` es una ruta Windows (`E:/tmp/XLS2/`). Para probar en macOS/Linux hay que
   sobreescribirla o la exportación fallará.
 
+## Release automática (GitHub Actions)
+
+`.github/workflows/release.yml` se dispara en **cada push a `main`** y hace, en este orden: tests →
+sube el patch del POM (`versions:set`) y el nombre del jar en `deploy/ejecutar.bat` → `package` →
+commit `chore: release X.Y.Z [skip ci]` + tag `vX.Y.Z` → release de GitHub con dos adjuntos, el
+`bvl-X.Y.Z.jar` suelto y un `bvl-X.Y.Z.zip` con jar + `bvl.properties` + `ejecutar.bat` listo para
+descomprimir en la máquina Windows.
+
+Cosas que conviene saber antes de tocarlo:
+
+- **La versión la manda el workflow, no tú.** Si subes el POM a mano, el siguiente push partirá de
+  ahí (4.7.0 → 4.7.1). Para un salto de menor o mayor, edita el POM y deja que el workflow siga.
+- **`deploy/ejecutar.bat` fija el nombre del jar a mano**, por eso el workflow lo reescribe con
+  `sed`. Si cambias el formato de esa línea, ajusta también el `sed` o el paquete apuntará al jar
+  viejo (el `grep -q` posterior lo detecta y rompe el build).
+- **El commit del bot no re-dispara el workflow** por dos motivos independientes: GitHub no encadena
+  ejecuciones desde pushes hechos con `GITHUB_TOKEN`, y el mensaje lleva `[skip ci]`.
+- El `concurrency: release-main` serializa las ejecuciones: dos pushes seguidos no compiten por el
+  mismo tag ni por el push a `main`.
+
 ## Configuración
 
 Todos los ajustes funcionales viven en properties, no en código:
