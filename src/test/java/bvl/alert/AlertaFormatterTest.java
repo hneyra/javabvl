@@ -2,6 +2,7 @@ package bvl.alert;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 import org.junit.jupiter.api.AfterEach;
@@ -97,5 +98,68 @@ class AlertaFormatterTest {
 
     assertThat(html).contains("<b>Las siguientes empresas variaron:</b><br /><br />");
     assertThat(html).contains("<div style='color:blue'>").contains("<div style='color:red'>");
+  }
+
+  // --- Con bloque de movimiento intradia ----------------------------------------------------
+
+  private static final LocalDateTime T_ANTERIOR = LocalDateTime.of(2024, 1, 15, 10, 30);
+
+  @Test
+  @DisplayName("el bloque intradia se añade debajo, separado y con la hora de la lectura previa")
+  void bloqueIntradiaEnTexto() {
+    String texto = formatter.texto(
+        List.of(new Variacion("ALICORC1", 3.5)),
+        List.of(new Variacion("BAP", -2.5)),
+        T_ANTERIOR);
+
+    assertThat(texto).isEqualTo(" + ALICORC1 subió 3.5%\n\nDesde las 10:30:\n - BAP bajó -2.5%\n");
+  }
+
+  @Test
+  @DisplayName("en HTML el bloque intradia lleva su propio encabezado")
+  void bloqueIntradiaEnHtml() {
+    String html = formatter.html(
+        List.of(new Variacion("ALICORC1", 3.5)),
+        List.of(new Variacion("BAP", -2.5)),
+        T_ANTERIOR);
+
+    assertThat(html)
+        .startsWith("<html>")
+        .endsWith("</html>")
+        .contains("<b>Las siguientes empresas variaron:</b>")
+        .contains("<div style='color:blue'> + ALICORC1 subió 3.5%</div>")
+        .contains("<b>Desde la lectura de las 10:30:</b><br /><br />")
+        .contains("<div style='color:red'> - BAP bajó -2.5%</div>");
+  }
+
+  @Test
+  @DisplayName("sin movimiento intradia el mensaje sale identico al de siempre")
+  void sinIntradiaElMensajeNoCambia() {
+    // Es la garantia de que añadir la comparacion no altera lo que el usuario lleva viendo.
+    List<Variacion> variaciones = List.of(new Variacion("ALICORC1", 3.5));
+
+    assertThat(formatter.texto(variaciones, List.of(), T_ANTERIOR))
+        .isEqualTo(formatter.texto(variaciones));
+    assertThat(formatter.html(variaciones, List.of(), T_ANTERIOR))
+        .isEqualTo(formatter.html(variaciones));
+  }
+
+  @Test
+  @DisplayName("solo movimiento intradia: se muestra ese bloque, sin el encabezado del otro")
+  void soloIntradia() {
+    List<Variacion> intradia = List.of(new Variacion("BAP", -2.5));
+
+    assertThat(formatter.texto(List.of(), intradia, T_ANTERIOR))
+        .isEqualTo("Desde las 10:30:\n - BAP bajó -2.5%\n");
+    assertThat(formatter.html(List.of(), intradia, T_ANTERIOR))
+        .doesNotContain("Las siguientes empresas variaron")
+        .contains("<b>Desde la lectura de las 10:30:</b>");
+  }
+
+  @Test
+  @DisplayName("los dos bloques vacios siguen dando el mensaje neutro")
+  void ambosVaciosDanMensajeNeutro() {
+    assertThat(formatter.texto(List.of(), List.of(), T_ANTERIOR)).isEqualTo("Sin variaciones.");
+    assertThat(formatter.html(List.of(), List.of(), T_ANTERIOR)).isEqualTo("Sin variaciones.");
   }
 }

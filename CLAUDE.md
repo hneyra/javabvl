@@ -12,7 +12,9 @@ system tray de las acciones que varían más de un umbral. Se despliega en Windo
 `deploy/ejecutar.bat`.
 
 **No hay base de datos.** Las cotizaciones van de la BVL al XLS, que es el archivo que consulta el usuario. Hubo
-una H2 embebida que se quitó: solo servía de ida y vuelta entre leer y exportar.
+una H2 embebida que se quitó: solo servía de ida y vuelta entre leer y exportar. Lo único que se retiene entre
+sondeos es la **lectura anterior, en memoria**, para medir el movimiento intradía; se pierde al reiniciar y no
+pasa nada.
 
 ## Comandos
 
@@ -62,7 +64,7 @@ bvl/
 ├─ service/     ExportService
 ├─ export/      BvlExporter · XlsWriter · CabeceraCotizaciones · ColumnaCotizacion · RutaXls · PlantillaXls
 ├─ alert/       DetectorVariaciones · Variacion · AlertaFormatter
-├─ schedule/    BvlScheduler · HorarioSondeo · CicloSondeo · ResultadoSondeo · SondeoListener
+├─ schedule/    BvlScheduler · HorarioSondeo · CicloSondeo · Lectura · ResultadoSondeo · SondeoListener
 └─ ui/          VentanaPrincipal · PanelSondeo · BandejaSistema · AlertaDialogo · Notificador · VentanaDatos
 ```
 
@@ -73,11 +75,13 @@ BvlScheduler (arranca al pulsar Iniciar; la app en reposo no procesa nada)
   ├─ sondearAhora()    → una lectura ya, sin mirar la ventana
   └─ cron de las properties
        └─ ventana horaria: descarta disparos fuera de [horaInicio, horaFin]
-       └─ CicloSondeo.process() → ResultadoSondeo(items, fecha)
+       └─ CicloSondeo.process() → ResultadoSondeo(actual, previa)
             ├─ LectorBvl.readData()     → BvlClient (HTTP) + CotizacionMapper (JSON → dominio)
             └─ ExportService.exportar() → BvlExporter → XlsWriter (POI), desde memoria
        └─ SondeoListener → VentanaPrincipal (en el EDT):
-            DetectorVariaciones → AlertaFormatter → BandejaSistema + AlertaDialogo
+            DetectorVariaciones.detectar()      → contra el cierre de ayer (lo publica la BVL)
+            DetectorVariaciones.detectarDesde() → contra el sondeo anterior de esta sesión
+            → AlertaFormatter → BandejaSistema + AlertaDialogo
 ```
 
 - **`BvlProperties`** — el único sitio donde aparece el nombre de una propiedad. Inyección por
@@ -93,6 +97,8 @@ BvlScheduler (arranca al pulsar Iniciar; la app en reposo no procesa nada)
   siguiente reinicio.
 - **`CicloSondeo`** — el recorrido completo de una lectura, y nada más. No sabe de horarios ni de UI.
   Devuelve `ResultadoSondeo` en vez de dejar las cotizaciones en un campo compartido entre hilos.
+  Retiene la lectura anterior, y **solo la anterior**: encadenar resultados acumularía la sesión entera
+  en memoria.
 - **`LectorBvl`** — única frontera con la BVL y **único sitio que envuelve errores** en
   `BvlLecturaException`. `BvlClient` es transporte puro (`.block()`), `CotizacionMapper` traduce.
   **No metas diálogos modales aquí**: corre en el hilo del planificador y bloquearía todos los
@@ -119,13 +125,21 @@ Un `Item` es la cotización de una `Accion` (con su `Sector`) en una `Moneda` y 
 `fechaLectura` es ese instante, lo publica la BVL y lo comparten todos los items de un mismo sondeo:
 es lo que agrupa una lectura y da nombre a la hoja del XLS.
 
-**La variación no la calcula la app**: llega de la BVL en `percentageChange`, y es la variación
-contra el cierre de la sesión anterior, que también viene en la respuesta (`previous`,
-`previousDate`). Por eso no hace falta guardar lecturas para poder alertar.
+Hay **dos variaciones distintas** y conviene no confundirlas:
+
+- **Contra el cierre de ayer.** No la calcula la app: llega de la BVL en `percentageChange`, junto con la base
+  de la comparación (`previous`, `previousDate`). Está siempre disponible, también en el primer sondeo.
+- **Desde el sondeo anterior** (`DetectorVariaciones.detectarDesde`). Ésta sí la calcula la app, sobre
+  `cotizacionUltima` y comparando por nemónico. Solo entran las acciones presentes y con precio en las dos
+  lecturas. No existe en el primer sondeo tras arrancar, ni cuando la BVL republica el mismo instante.
+
+Las dos usan el **mismo umbral**, el que hay escrito en la ventana. Los movimientos intradía son por naturaleza
+más pequeños que los del día, así que con un umbral alto ese segundo bloque salta poco; si hiciera falta un
+umbral propio, es una propiedad nueva con default y tres líneas en `VentanaPrincipal.presentar`.
 
 ## Tests
 
-99 tests. No tocan la red, ni el disco del usuario, ni abren ventanas.
+116 tests. No tocan la red, ni el disco del usuario, ni abren ventanas.
 
 - Nombra las clases `*Test` o `*IntegrationTest`, **nunca `*IT`**: surefire no recoge ese patrón y el
   test quedaría fuera de `./mvnw test` sin avisar.

@@ -6,6 +6,7 @@ import bvl.alert.Variacion;
 import bvl.config.BvlProperties;
 import bvl.schedule.BvlScheduler;
 import bvl.schedule.HorarioSondeo;
+import bvl.schedule.Lectura;
 import bvl.schedule.ResultadoSondeo;
 import bvl.schedule.SondeoListener;
 import jakarta.annotation.PostConstruct;
@@ -13,6 +14,7 @@ import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.Toolkit;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -158,6 +160,13 @@ public class VentanaPrincipal extends JFrame implements PanelSondeo.Acciones, So
         SwingUtilities.invokeLater(() -> notificarFallo(error));
     }
 
+    /**
+     * Presenta las variaciones de la lectura recien hecha. El aviso lleva dos bloques: lo que se ha
+     * movido respecto al cierre de ayer, que publica la BVL, y —si hay lectura previa en esta
+     * sesion— lo que se ha movido desde el sondeo anterior.
+     *
+     * <p>El umbral es el mismo para los dos, el que hay escrito en la ventana.
+     */
     private void presentar(ResultadoSondeo resultado) {
         double umbral;
         try {
@@ -166,10 +175,19 @@ public class VentanaPrincipal extends JFrame implements PanelSondeo.Acciones, So
             notificarFallo(e);
             return;
         }
-        List<Variacion> variaciones = detector.detectar(resultado.items(), umbral);
-        notificador.aviso("Empresas que variaron: " + resultado.fecha(),
-                formatter.texto(variaciones));
-        alerta.mostrar(formatter.html(variaciones), timeoutAlerta());
+        Lectura actual = resultado.actual();
+        List<Variacion> contraCierre = detector.detectar(actual.items(), umbral);
+
+        List<Variacion> intradia = List.of();
+        LocalDateTime instanteAnterior = null;
+        if (resultado.hayConQueComparar()) {
+            instanteAnterior = resultado.previa().fecha();
+            intradia = detector.detectarDesde(resultado.previa(), actual, umbral);
+        }
+
+        notificador.aviso("Empresas que variaron: " + actual.fecha(),
+                formatter.texto(contraCierre, intradia, instanteAnterior));
+        alerta.mostrar(formatter.html(contraCierre, intradia, instanteAnterior), timeoutAlerta());
     }
 
     /** Los fallos se avisan por la bandeja, que no bloquea, en lugar de por un dialogo modal. */

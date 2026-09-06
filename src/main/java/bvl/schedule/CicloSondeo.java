@@ -17,7 +17,9 @@ import org.springframework.stereotype.Service;
  * {@link SondeoListener}).
  *
  * <p>Las cotizaciones no se guardan en ninguna base: van de la BVL al XLS, que es el archivo que
- * consulta el usuario.
+ * consulta el usuario. Lo unico que se retiene es la <b>lectura anterior</b>, en memoria, para poder
+ * medir cuanto se ha movido cada accion desde el sondeo previo. Al reiniciar la aplicacion se pierde,
+ * y el primer sondeo simplemente no tiene con que comparar.
  */
 @Service
 public class CicloSondeo {
@@ -26,6 +28,12 @@ public class CicloSondeo {
 
     private final LectorBvl lector;
     private final ExportService exportacion;
+
+    /**
+     * La lectura del ciclo anterior, para poder medir el movimiento intradia. Solo la toca el hilo
+     * del planificador, que sondea en serie; {@code volatile} por si algun dia deja de ser asi.
+     */
+    private volatile Lectura anterior;
 
     public CicloSondeo(LectorBvl lector, ExportService exportacion) {
         this.lector = lector;
@@ -43,8 +51,11 @@ public class CicloSondeo {
         LocalDateTime fecha = lector.getFecha();
         logger.debug("Leidas {} cotizaciones de las {}", items.size(), fecha);
 
-        ResultadoSondeo resultado = new ResultadoSondeo(items, fecha);
-        exportacion.exportar(resultado);
+        Lectura actual = new Lectura(items, fecha);
+        exportacion.exportar(actual);
+
+        ResultadoSondeo resultado = new ResultadoSondeo(actual, anterior);
+        anterior = actual;
         return resultado;
     }
 }

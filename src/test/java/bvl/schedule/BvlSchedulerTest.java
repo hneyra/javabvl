@@ -78,8 +78,8 @@ class BvlSchedulerTest {
   void elResultadoViajaAlListener() {
     // Antes las cotizaciones vivian en un campo del orquestador que leia el EDT sin sincronizar,
     // y la ventana pedia la fecha otra vez por HTTP solo para el titulo del aviso.
-    ResultadoSondeo resultado =
-        new ResultadoSondeo(List.of(), LocalDateTime.of(2024, 1, 16, 12, 0));
+    ResultadoSondeo resultado = new ResultadoSondeo(
+        new Lectura(List.of(), LocalDateTime.of(2024, 1, 16, 12, 0)), null);
     when(ciclo.process()).thenReturn(resultado);
 
     schedulerA(LocalTime.of(12, 0)).ejecutarSondeo();

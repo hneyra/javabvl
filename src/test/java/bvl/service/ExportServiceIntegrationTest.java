@@ -7,7 +7,7 @@ import bvl.domain.Accion;
 import bvl.domain.Item;
 import bvl.domain.Moneda;
 import bvl.domain.Sector;
-import bvl.schedule.ResultadoSondeo;
+import bvl.schedule.Lectura;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -81,7 +81,7 @@ class ExportServiceIntegrationTest {
   void exportaLosDosFicheros() {
     LocalDateTime fecha = LocalDateTime.of(2024, 1, 15, 10, 30);
 
-    servicio().exportar(new ResultadoSondeo(List.of(item("ALICORC1", fecha)), fecha));
+    servicio().exportar(new Lectura(List.of(item("ALICORC1", fecha)), fecha));
 
     assertThat(diario()).exists();
     assertThat(mensual()).exists();
@@ -94,7 +94,7 @@ class ExportServiceIntegrationTest {
     List<Item> items = List.of(
         item("ALICORC1", fecha), item("BAP", fecha), item("VOLCABC1", fecha));
 
-    servicio().exportar(new ResultadoSondeo(items, fecha));
+    servicio().exportar(new Lectura(items, fecha));
 
     assertThat(filasDeDatos(diario(), "10.30.00")).isEqualTo(3);
     assertThat(filasDeDatos(mensual(), "15")).isEqualTo(3);
@@ -107,7 +107,7 @@ class ExportServiceIntegrationTest {
     // exportacion releia de la base, cada repeticion sumaba una copia de cada cotizacion.
     LocalDateTime fecha = LocalDateTime.of(2024, 1, 15, 10, 30);
     ExportService servicio = servicio();
-    ResultadoSondeo resultado = new ResultadoSondeo(List.of(item("ALICORC1", fecha)), fecha);
+    Lectura resultado = new Lectura(List.of(item("ALICORC1", fecha)), fecha);
 
     servicio.exportar(resultado);
     servicio.exportar(resultado);
@@ -122,8 +122,8 @@ class ExportServiceIntegrationTest {
     LocalDateTime segunda = LocalDateTime.of(2024, 1, 15, 10, 50);
     ExportService servicio = servicio();
 
-    servicio.exportar(new ResultadoSondeo(List.of(item("ALICORC1", primera)), primera));
-    servicio.exportar(new ResultadoSondeo(List.of(item("ALICORC1", segunda)), segunda));
+    servicio.exportar(new Lectura(List.of(item("ALICORC1", primera)), primera));
+    servicio.exportar(new Lectura(List.of(item("ALICORC1", segunda)), segunda));
 
     try (HSSFWorkbook wb = new HSSFWorkbook(new FileInputStream(diario()))) {
       assertThat(wb.getSheet("10.30.00")).isNotNull();
@@ -136,7 +136,7 @@ class ExportServiceIntegrationTest {
   void lecturaVacia() {
     LocalDateTime fecha = LocalDateTime.of(2024, 1, 15, 10, 30);
 
-    servicio().exportar(new ResultadoSondeo(List.of(), fecha));
+    servicio().exportar(new Lectura(List.of(), fecha));
 
     assertThat(diario()).exists();
     assertThat(mensual()).exists();

@@ -3,7 +3,7 @@ package bvl.service;
 import bvl.config.BvlProperties;
 import bvl.domain.Item;
 import bvl.export.BvlExporter;
-import bvl.schedule.ResultadoSondeo;
+import bvl.schedule.Lectura;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.slf4j.Logger;
@@ -32,8 +32,8 @@ public class ExportService {
         this.xlsPath = properties.getXlsPath();
     }
 
-    public void exportar(ResultadoSondeo resultado) {
-        exportar(resultado.fecha(), resultado.items());
+    public void exportar(Lectura lectura) {
+        exportar(lectura.fecha(), lectura.items());
     }
 
     public void exportar(LocalDateTime fecha, List<Item> items) {
