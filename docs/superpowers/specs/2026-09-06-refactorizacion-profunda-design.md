@@ -168,3 +168,20 @@ Ocho fases, `./mvnw test` verde al final de cada una.
 **Fuera de alcance de la verificación automática:** que la ventana Swing se pinte igual. La app no
 arranca sin display. Se verifica compilación y cableado; el aspecto visual lo confirma el usuario
 con `./mvnw spring-boot:run`.
+
+---
+
+## Addendum (mismo día, tras entregar el diseño de arriba)
+
+Dos decisiones posteriores del usuario ampliaron el alcance:
+
+1. **Se quitó la base de datos embebida.** Al preguntar si H2 era necesaria, quedó claro que en el
+   camino vivo solo hacía de ida y vuelta: `exportar` releía lo que `saveData` acababa de escribir, y
+   esos items ya estaban en memoria. El archivo real son los XLS. Fuera JPA, H2, repositorios,
+   `CatalogoService`, `LecturaService`, `BvlController` y la entidad `Lectura`.
+   Jar: 83,5 MB → 52,4 MB. Efecto colateral: se acabó la duplicación de filas en el XLS.
+2. **Se añadió la comparación intradía** (movimiento desde el sondeo anterior), en memoria. Es
+   funcionalidad nueva, no refactorización: la variación de siempre la publica la BVL contra el
+   cierre de ayer y nunca necesitó histórico.
+
+El resto del diseño se entregó tal cual quedó aprobado.
