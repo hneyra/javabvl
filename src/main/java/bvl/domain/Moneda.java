@@ -1,6 +1,10 @@
 package bvl.domain;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
 
 @Entity
 public class Moneda {
@@ -9,7 +13,7 @@ public class Moneda {
     @GeneratedValue(strategy = GenerationType.AUTO)
     private Long id;
 
-    @Column(insertable = true, updatable = true, unique = true, nullable = false, length = 32)
+    @Column(unique = true, nullable = false, length = 32)
     private String nombre;
 
     public Long getId() {

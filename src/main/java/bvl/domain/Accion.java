@@ -1,7 +1,15 @@
 package bvl.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import jakarta.persistence.*;
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 
 @Entity
 public class Accion {
@@ -10,15 +18,15 @@ public class Accion {
     @GeneratedValue(strategy = GenerationType.AUTO)
     private Long id;
 
-    @Column(insertable = true, updatable = true, unique = true, nullable = false, length = 16)
+    @Column(unique = true, nullable = false, length = 16)
     private String nemonico;
 
-    @Column(insertable = true, updatable = true, unique = false, nullable = false, length = 128)
+    @Column(nullable = false, length = 128)
     private String empresa;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
-    @JoinColumn(name = "sector_id", referencedColumnName = "id", updatable = true, insertable = true, unique = false)
+    @JoinColumn(name = "sector_id", referencedColumnName = "id")
     private Sector sector;
 
     public Long getId() {

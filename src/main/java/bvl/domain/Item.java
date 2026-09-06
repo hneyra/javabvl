@@ -1,7 +1,15 @@
 package bvl.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import jakarta.persistence.*;
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -15,20 +23,20 @@ public class Item {
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
-    @JoinColumn(name = "lectura_id", referencedColumnName = "id", updatable = true, insertable = true, unique = false)
+    @JoinColumn(name = "lectura_id", referencedColumnName = "id")
     private Lectura lectura;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
-    @JoinColumn(name = "accion_id", referencedColumnName = "id", updatable = true, insertable = true, unique = false)
+    @JoinColumn(name = "accion_id", referencedColumnName = "id")
     private Accion accion;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
-    @JoinColumn(name = "moneda_id", referencedColumnName = "id", updatable = true, insertable = true, unique = false)
+    @JoinColumn(name = "moneda_id", referencedColumnName = "id")
     private Moneda moneda;
 
-    @Column(insertable = true, updatable = true, unique = false, nullable = false, length = 16)
+    @Column(nullable = false, length = 16)
     private String segmento;
 
     private Double cotizacionAnterior;

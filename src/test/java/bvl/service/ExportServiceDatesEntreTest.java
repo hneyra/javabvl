@@ -2,6 +2,7 @@ package bvl.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import bvl.config.BvlProperties;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -10,9 +11,15 @@ import org.junit.jupiter.api.Test;
 /**
  * {@code datesEntre} no usa ninguna dependencia inyectada, asi que se prueba sin Spring.
  */
-class BvlServiceDatesEntreTest {
+class ExportServiceDatesEntreTest {
 
-  private final BvlService service = new BvlService();
+  // datesEntre no toca ni la base ni el disco, asi que los colaboradores pueden ir vacios.
+  private final ExportService service = new ExportService(null, propiedades());
+
+  private static BvlProperties propiedades() {
+    return new BvlProperties("http://localhost", "http://localhost/market", "http://localhost/daily",
+        System.getProperty("java.io.tmpdir"), "2", "00:10:00", "9:40:00", "16:30", "00:05:00");
+  }
 
   @Test
   @DisplayName("fecha1 == fecha2 devuelve un unico dia")

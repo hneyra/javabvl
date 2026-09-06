@@ -24,11 +24,12 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.context.TestPropertySource;
 
 /**
- * {@link BvlService} contra una H2 real: es donde se decide que se deduplica y que se duplica en
- * cada ciclo de sondeo.
+ * {@link LecturaService} y {@link CatalogoService} contra una H2 real: es donde se decide que se
+ * deduplica y que se duplica en cada ciclo de sondeo.
+ *
+ * <p>No hace falta {@code xlsPath}: la exportacion vive en {@link ExportService}, aparte.
  *
  * <p>Varios tests caracterizan comportamiento actual que contradice lo que sugiere el nombre del
  * metodo. Estan marcados como CARACTERIZACION y explicados; ver la seccion "Trampas conocidas"
@@ -39,12 +40,11 @@ import org.springframework.test.context.TestPropertySource;
  */
 @DataJpaTest
 @ContextConfiguration(classes = TestJpaConfig.class)
-@Import(BvlService.class)
-@TestPropertySource(properties = "xlsPath=${java.io.tmpdir}/javabvl-tests/")
-class BvlServiceIntegrationTest {
+@Import({CatalogoService.class, LecturaService.class})
+class LecturaServiceIntegrationTest {
 
   @Autowired
-  BvlService service;
+  LecturaService service;
 
   @Autowired
   TestEntityManager em;
@@ -64,7 +64,7 @@ class BvlServiceIntegrationTest {
   @Autowired
   SectorRepository sectorRepository;
 
-  /** Construye un Item transitorio tal y como lo entrega BvlReader.fromBvlItem. */
+  /** Construye un Item transitorio tal y como lo entrega CotizacionMapper.aItem. */
   private static Item itemLeido(String nemonico, String sector, String moneda,
       LocalDateTime fechaLectura, Double variacion) {
     Sector s = new Sector();
@@ -133,7 +133,7 @@ class BvlServiceIntegrationTest {
   @DisplayName("CARACTERIZACION: repetir la misma lectura duplica los items")
   void saveDataRepetirLaMismaLecturaDuplicaItems() {
     // La guarda "if (lastDate == null || !fecha.equals(lastDate))" esta comentada en saveData,
-    // igual que la de BVL2.process(). Cada ciclo reinserta los items aunque la BVL no haya
+    // igual que la de CicloSondeo.process(). Cada ciclo reinserta los items aunque la BVL no haya
     // publicado nada nuevo, todos colgando de la misma Lectura.
     LocalDateTime fecha = LocalDateTime.of(2024, 1, 15, 10, 0);
 
@@ -176,7 +176,7 @@ class BvlServiceIntegrationTest {
   @DisplayName("CARACTERIZACION: getLastDate devuelve la lectura MAS ANTIGUA")
   void getLastDateDevuelveLaMasAntigua() {
     // Ordena Direction.ASC y toma la primera pagina, asi que pese al nombre no es la ultima.
-    // BVL2.process() la usa como referencia para cargar dataAnt (que ademas nunca se lee).
+    // CicloSondeo.process() la usa como referencia para cargar dataAnt (que ademas nunca se lee).
     LocalDateTime pronto = LocalDateTime.of(2024, 1, 15, 9, 45);
     LocalDateTime tarde = LocalDateTime.of(2024, 1, 15, 16, 30);
     service.saveData(List.of(itemLeido("BAP", "Bancos", "Soles", tarde, 1.0)), tarde);
@@ -189,7 +189,7 @@ class BvlServiceIntegrationTest {
   @Test
   @DisplayName("getLastDate devuelve null con la base vacia")
   void getLastDateSinDatos() {
-    // BVL2.process() cuenta con este null y lo sustituye por LocalDateTime.MIN.
+    // CicloSondeo.process() cuenta con este null y lo sustituye por LocalDateTime.MIN.
     assertThat(service.getLastDate()).isNull();
   }
 

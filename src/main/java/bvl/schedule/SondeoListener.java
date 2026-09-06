@@ -9,7 +9,7 @@ package bvl.schedule;
  */
 public interface SondeoListener {
 
-    void onSondeoCompletado();
+    void onSondeoCompletado(ResultadoSondeo resultado);
 
     void onSondeoFallido(Throwable error);
 }

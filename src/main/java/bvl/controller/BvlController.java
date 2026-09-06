@@ -4,45 +4,52 @@ import bvl.domain.Accion;
 import bvl.domain.Item;
 import bvl.domain.Lectura;
 import bvl.domain.Moneda;
-import bvl.repository.*;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.RequestMapping;
+import bvl.repository.AccionRepository;
+import bvl.repository.ItemRepository;
+import bvl.repository.LecturaRepository;
+import bvl.repository.MonedaRepository;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Volcado en JSON de las tablas, para inspeccionar la base sin abrir la consola de H2.
+ *
+ * <p>Solo lectura y sin paginar: es una herramienta de diagnostico, no una API.
+ */
 @RestController
 public class BvlController {
 
-    @Autowired
-    AccionRepository accionRepository;
+    private final AccionRepository accionRepository;
+    private final ItemRepository itemRepository;
+    private final LecturaRepository lecturaRepository;
+    private final MonedaRepository monedaRepository;
 
-    @Autowired
-    ItemRepository itemRepository;
+    public BvlController(AccionRepository accionRepository,
+                         ItemRepository itemRepository,
+                         LecturaRepository lecturaRepository,
+                         MonedaRepository monedaRepository) {
+        this.accionRepository = accionRepository;
+        this.itemRepository = itemRepository;
+        this.lecturaRepository = lecturaRepository;
+        this.monedaRepository = monedaRepository;
+    }
 
-    @Autowired
-    LecturaRepository lecturaRepository;
-
-    @Autowired
-    SectorRepository sectorRepository;
-
-    @Autowired
-    MonedaRepository monedaRepository;
-
-    @RequestMapping("item")
+    @GetMapping("item")
     Iterable<Item> listItems() {
         return itemRepository.findAll();
     }
 
-    @RequestMapping("moneda")
+    @GetMapping("moneda")
     Iterable<Moneda> listMonedas() {
         return monedaRepository.findAll();
     }
 
-    @RequestMapping("accion")
-    Iterable<Accion> listacciones() {
+    @GetMapping("accion")
+    Iterable<Accion> listAcciones() {
         return accionRepository.findAll();
     }
 
-    @RequestMapping("lectura")
+    @GetMapping("lectura")
     Iterable<Lectura> listLecturas() {
         return lecturaRepository.findAll();
     }
