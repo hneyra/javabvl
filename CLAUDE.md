@@ -7,9 +7,12 @@ El dominio y el código están en español (`Accion`, `Lectura`, `Moneda`, `Sect
 ## Qué es
 
 App de escritorio Swing sobre Spring Boot. Sondea la API de la Bolsa de Valores de Lima
-(`dataondemand.bvl.com.pe`), guarda cada lectura en H2, exporta XLS (uno por día y otro acumulado por mes) y avisa
-por el system tray de las acciones que varían más de un umbral. Se despliega en Windows como jar, con
+(`dataondemand.bvl.com.pe`), exporta cada lectura a XLS (uno por día y otro acumulado por mes) y avisa por el
+system tray de las acciones que varían más de un umbral. Se despliega en Windows como jar, con
 `deploy/ejecutar.bat`.
+
+**No hay base de datos.** Las cotizaciones van de la BVL al XLS, que es el archivo que consulta el usuario. Hubo
+una H2 embebida que se quitó: solo servía de ida y vuelta entre leer y exportar.
 
 ## Comandos
 
@@ -19,7 +22,7 @@ Java 25, Spring Boot 4.1.1. Usa el wrapper; no hace falta tener `mvn` instalado.
 ./mvnw clean package                          # jar ejecutable en target/
 ./mvnw spring-boot:run                        # abre la ventana Swing
 ./mvnw test                                   # toda la suite
-./mvnw test -Dtest=LecturaServiceIntegrationTest#getLastDateDevuelveLaMasAntigua
+./mvnw test -Dtest=ExportServiceIntegrationTest#dosCiclosConLaMismaFechaNoDuplicanFilas
 java -jar target/bvl-4.6.0.jar --spring.config.location=deploy/bvl.properties
 ```
 
@@ -38,7 +41,6 @@ Tres cosas que hacen perder tiempo:
 | `alarma` | umbral de variación % que dispara la alerta |
 | `horaInicio`, `horaFin`, `intervalo` | cron y ventana de sondeo; `intervalo` debe ser minutos enteros divisores de 60 |
 | `alertaTimeout` | cuánto aguanta abierta la alerta antes de cerrarse sola; si falta, 10 min |
-| `spring.datasource.url` | H2 en fichero, `ddl-auto=update` |
 
 Dos cosas no obvias:
 
@@ -54,16 +56,14 @@ Paquetes en inglés, dominio en castellano.
 ```
 bvl/
 ├─ config/      BvlProperties · WebClientConfiguration · SchedulingConfiguration · SwingConfiguration
-├─ domain/      Accion · Item · Lectura · Moneda · Sector
+├─ domain/      Accion · Item · Moneda · Sector   (objetos planos, sin ORM)
 ├─ market/      BvlClient · CotizacionMapper · LectorBvl · TlsInseguro · BvlLecturaException
 │  └─ dto/      BvlItem · Daily · StockMarket   (records, nombres en inglés = los del JSON)
-├─ repository/  un repositorio por entidad
-├─ service/     CatalogoService · LecturaService · ExportService
+├─ service/     ExportService
 ├─ export/      BvlExporter · XlsWriter · CabeceraCotizaciones · ColumnaCotizacion · RutaXls · PlantillaXls
 ├─ alert/       DetectorVariaciones · Variacion · AlertaFormatter
 ├─ schedule/    BvlScheduler · HorarioSondeo · CicloSondeo · ResultadoSondeo · SondeoListener
-├─ ui/          VentanaPrincipal · PanelSondeo · BandejaSistema · AlertaDialogo · Notificador · VentanaDatos
-└─ controller/  BvlController
+└─ ui/          VentanaPrincipal · PanelSondeo · BandejaSistema · AlertaDialogo · Notificador · VentanaDatos
 ```
 
 Recorrido de un sondeo:
@@ -74,9 +74,8 @@ BvlScheduler (arranca al pulsar Iniciar; la app en reposo no procesa nada)
   └─ cron de las properties
        └─ ventana horaria: descarta disparos fuera de [horaInicio, horaFin]
        └─ CicloSondeo.process() → ResultadoSondeo(items, fecha)
-            ├─ LectorBvl.readData()      → BvlClient (HTTP) + CotizacionMapper (JSON → dominio)
-            ├─ LecturaService.saveData() → CatalogoService deduplica y luego saveAll
-            └─ ExportService.exportar()  → BvlExporter → XlsWriter (POI)
+            ├─ LectorBvl.readData()     → BvlClient (HTTP) + CotizacionMapper (JSON → dominio)
+            └─ ExportService.exportar() → BvlExporter → XlsWriter (POI), desde memoria
        └─ SondeoListener → VentanaPrincipal (en el EDT):
             DetectorVariaciones → AlertaFormatter → BandejaSistema + AlertaDialogo
 ```
@@ -101,9 +100,7 @@ BvlScheduler (arranca al pulsar Iniciar; la app en reposo no procesa nada)
 - **`TlsInseguro`** — desactiva la validación TLS de `HttpsURLConnection` en toda la JVM. Deliberado
   para el endpoint de la BVL; en su propia clase para que se vea y para que los tests no lo
   arrastren.
-- **`CatalogoService`** — los `saveIfNotExist*`. Deduplican por clave natural (`nemonico`, `nombre`,
-  `fecha`) porque el mapper entrega las entidades sin id.
-- **`LecturaService`** — persistencia y consulta. **`ExportService`** — volcado a XLS.
+- **`ExportService`** — vuelca al XLS **lo que se acaba de leer**, sin pasar por disco intermedio.
 - **`ColumnaCotizacion`** — el orden de las columnas del XLS, compartido por la cabecera y la fila
   de datos para que no puedan desalinearse. **`CabeceraCotizaciones`** declara la maqueta de las
   tres filas de cabecera; **`RutaXls`** decide nombres de fichero y de hoja.
@@ -115,24 +112,25 @@ BvlScheduler (arranca al pulsar Iniciar; la app en reposo no procesa nada)
 - **`SwingConfiguration`** — construye la ventana **solo si hay pantalla**. En producción siempre la
   hay (`headless(false)`); en la suite no, y por eso el contexto completo puede arrancar en los
   tests.
-- **`BvlController`** — solo lectura, un `findAll` por entidad. Para inspeccionar la BD sin abrir H2.
 
 ### Modelo de datos
 
-`Lectura` es el eje temporal: una fila por instante de sondeo. Cada `Item` es la cotización de una
-`Accion` en una `Lectura`. Todo es `@ManyToOne` LAZY con `cascade = REFRESH`, así que las entidades
-relacionadas **deben guardarse antes** que el `Item`; eso hace `LecturaService.saveData`.
+Un `Item` es la cotización de una `Accion` (con su `Sector`) en una `Moneda` y en un instante.
+`fechaLectura` es ese instante, lo publica la BVL y lo comparten todos los items de un mismo sondeo:
+es lo que agrupa una lectura y da nombre a la hoja del XLS.
+
+**La variación no la calcula la app**: llega de la BVL en `percentageChange`, y es la variación
+contra el cierre de la sesión anterior, que también viene en la respuesta (`previous`,
+`previousDate`). Por eso no hace falta guardar lecturas para poder alertar.
 
 ## Tests
 
-115 tests. No tocan la red, ni la BD de desarrollo, ni abren ventanas.
+99 tests. No tocan la red, ni el disco del usuario, ni abren ventanas.
 
 - Nombra las clases `*Test` o `*IntegrationTest`, **nunca `*IT`**: surefire no recoge ese patrón y el
   test quedaría fuera de `./mvnw test` sin avisar.
 - `ArranqueIntegrationTest` levanta el contexto **entero**. Es el único que lo hace: sin él, un bean
   sin declarar o una propiedad mal escrita no se verían hasta ejecutar el jar en despliegue.
-- Los `@DataJpaTest` necesitan `@ContextConfiguration(classes = TestJpaConfig.class)`. Sin eso Spring
-  encuentra `JavaBvlApplication` y arrastra el contexto completo.
 - En un `ApplicationContextRunner`, registra `PropertySourcesPlaceholderConfigurer`. Sin él los
   placeholders se resuelven con `Environment.resolvePlaceholders`, que deja `${loQueFalte}` como
   literal en vez de fallar: el test sería más permisivo que producción.
@@ -145,16 +143,10 @@ relacionadas **deben guardarse antes** que el `Item`; eso hace `LecturaService.s
 
 Cada una lleva un Javadoc `TRAMPA CONOCIDA:` en su clase.
 
-- `LecturaService.getLastDate()` devuelve la lectura **más antigua**, no la última: ordena ASC.
-  → `LecturaServiceIntegrationTest#getLastDateDevuelveLaMasAntigua`
-- `LecturaService.getHoras()` lanza `DateTimeException` siempre (`LocalDateTime.from(LocalDate)`).
-  Está muerto. → `LecturaServiceIntegrationTest#getHorasSiempreFalla`
-- `LecturaService.saveData` no tiene guarda anti-duplicado: cada ciclo reinserta los items sobre la
-  misma `Lectura`. → `LecturaServiceIntegrationTest#saveDataRepetirLaMismaLecturaDuplicaItems`
-- El parámetro `fecha` de `saveData` **no se usa**: la `Lectura` sale de los items. Si `readData()`
-  y `getFecha()` devolvieran instantes distintos, `exportar` buscaría una lectura que no existe.
-- `ExportService.exportar()` vuelca al XLS mensual solo el último grupo horario, no todos.
 - `AlertaFormatter` formatea con el locale de la JVM: coma o punto decimal según la máquina.
+- `LectorBvl` pide la fecha **dos veces** por ciclo (`readData()` la pide para sí y `CicloSondeo`
+  la vuelve a pedir). Si las dos respuestas no coincidieran, los items llevarían un instante y la
+  hoja del XLS otro.
 - `BvlExporter.closeResources()` y `XlsWriter.closeResources()` están vacías; los `Workbook` no se
   cierran.
 
@@ -169,16 +161,10 @@ fichero de `deploy/` suelto. El workflow no fija nombres: lo que metas en esa ca
 - La versión la lleva el workflow. Para un salto de menor o mayor, edita el POM y deja que siga desde ahí.
 - `deploy/ejecutar.bat` fija el nombre del jar a mano; el workflow lo reescribe con `sed` y lo verifica con `grep`.
 
-## Boot 4: paquetes que se movieron
+## Boot 4
 
-| Boot 3 | Boot 4.1 |
-|---|---|
-| `o.s.boot.autoconfigure.domain.EntityScan` | `o.s.boot.persistence.autoconfigure.EntityScan` |
-| `o.s.boot.test.autoconfigure.orm.jpa.DataJpaTest` | `o.s.boot.data.jpa.test.autoconfigure.DataJpaTest` |
-| `o.s.boot.test.autoconfigure.orm.jpa.TestEntityManager` | `o.s.boot.jpa.test.autoconfigure.TestEntityManager` |
-
-`spring-boot-starter-test` no arrastra esos dos últimos; `spring-boot-data-jpa-test` está declarado en el POM.
-Jackson 3 (`tools.jackson`) es el de serie, pero las anotaciones siguen en `com.fasterxml.jackson.annotation`.
+Jackson 3 (`tools.jackson`) es el de serie. Los DTO de entrada son `record`, que Jackson deserializa
+sin anotaciones porque el POM compila con `-parameters`.
 
 ## Controles sin efecto
 

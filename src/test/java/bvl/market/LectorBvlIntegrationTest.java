@@ -153,10 +153,7 @@ class LectorBvlIntegrationTest {
 
     List<Item> items = lector().readData();
 
-    assertThat(items).allSatisfy(i -> {
-      assertThat(i.getFechaLectura()).isEqualTo(esperada);
-      assertThat(i.getLectura().getFecha()).isEqualTo(esperada);
-    });
+    assertThat(items).allSatisfy(i -> assertThat(i.getFechaLectura()).isEqualTo(esperada));
   }
 
   @Test

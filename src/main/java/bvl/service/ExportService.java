@@ -3,105 +3,63 @@ package bvl.service;
 import bvl.config.BvlProperties;
 import bvl.domain.Item;
 import bvl.export.BvlExporter;
+import bvl.schedule.ResultadoSondeo;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * Vuelca a XLS lo que ya esta en la base.
+ * Vuelca una lectura a los dos XLS que consulta el usuario: el del dia, con una hoja por hora de
+ * sondeo, y el del mes, con una hoja por dia.
  *
- * <p>Por cada dia del rango se agrupan las cotizaciones por instante de lectura y cada grupo va a
- * su hoja del fichero diario. Un fallo escribiendo una hoja se registra y no interrumpe las demas:
- * mas vale exportar de menos que perder el sondeo entero.
+ * <p>Exporta <b>lo que se acaba de leer</b>. Antes escribia las cotizaciones en la base y las
+ * releia para exportarlas, un viaje de ida y vuelta que ademas arrastraba los items duplicados de
+ * ciclos anteriores a la hoja del dia.
+ *
+ * <p>Un fallo escribiendo un fichero se registra y no impide el otro: mas vale exportar de menos
+ * que perder la lectura entera.
  */
 @Service
 public class ExportService {
 
     private static final Logger logger = LoggerFactory.getLogger(ExportService.class);
 
-    private final LecturaService lecturas;
     private final String xlsPath;
 
-    public ExportService(LecturaService lecturas, BvlProperties properties) {
-        this.lecturas = lecturas;
+    public ExportService(BvlProperties properties) {
         this.xlsPath = properties.getXlsPath();
     }
 
-    /**
-     * Exporta el rango, ambos extremos segun manda {@link #datesEntre}.
-     *
-     * <p>TRAMPA CONOCIDA: al fichero <b>mensual</b> solo llega el ultimo grupo horario de cada dia,
-     * no todos. Se conserva tal cual; ver "Trampas conocidas" en CLAUDE.md.
-     */
-    public void exportar(LocalDateTime desde, LocalDateTime hasta) {
-        BvlExporter exportadorDiario = new BvlExporter(xlsPath);
-        BvlExporter exportadorMensual = new BvlExporter(xlsPath);
-
-        List<LocalDateTime> dias = datesEntre(desde, hasta);
-        logger.debug("Exportando para las fechas: {}", dias);
-
-        for (LocalDateTime dia : dias) {
-            Map<LocalDateTime, List<Item>> porHora = agruparPorHora(lecturas.getItems(dia, dia));
-
-            Map.Entry<LocalDateTime, List<Item>> ultimoGrupo = null;
-            for (Map.Entry<LocalDateTime, List<Item>> grupo : porHora.entrySet()) {
-                try {
-                    exportadorDiario.abrirHojaDiaria(grupo.getKey());
-                    ultimoGrupo = grupo;
-                    exportadorDiario.escribirDatos(grupo.getValue());
-                } catch (Exception e) {
-                    logger.error("Fallo exportando la hoja diaria de {}: {}", grupo.getKey(),
-                            e.getMessage(), e);
-                }
-            }
-
-            if (ultimoGrupo == null) {
-                continue;
-            }
-            try {
-                exportadorMensual.abrirHojaMensual(ultimoGrupo.getKey());
-                exportadorMensual.escribirDatos(ultimoGrupo.getValue());
-            } catch (Exception e) {
-                logger.error("Fallo exportando la hoja mensual de {}: {}", ultimoGrupo.getKey(),
-                        e.getMessage(), e);
-            }
-        }
-
-        exportadorDiario.closeResources();
-        exportadorMensual.closeResources();
+    public void exportar(ResultadoSondeo resultado) {
+        exportar(resultado.fecha(), resultado.items());
     }
 
-    /** Agrupa por instante de lectura. TreeMap: las hojas salen en orden cronologico. */
-    private static Map<LocalDateTime, List<Item>> agruparPorHora(List<Item> items) {
-        Map<LocalDateTime, List<Item>> porHora = new TreeMap<>();
-        if (items == null) {
-            return porHora;
-        }
-        for (Item item : items) {
-            porHora.computeIfAbsent(item.getFechaLectura(), k -> new ArrayList<>()).add(item);
-        }
-        return porHora;
+    public void exportar(LocalDateTime fecha, List<Item> items) {
+        logger.debug("Exportando {} cotizaciones de las {}", items.size(), fecha);
+
+        BvlExporter diario = new BvlExporter(xlsPath);
+        escribir("diaria", fecha, () -> {
+            diario.abrirHojaDiaria(fecha);
+            diario.escribirDatos(items);
+        });
+
+        BvlExporter mensual = new BvlExporter(xlsPath);
+        escribir("mensual", fecha, () -> {
+            mensual.abrirHojaMensual(fecha);
+            mensual.escribirDatos(items);
+        });
+
+        diario.closeResources();
+        mensual.closeResources();
     }
 
-    /**
-     * Dias del rango, conservando la hora de {@code desde}.
-     *
-     * <p>El bucle agrega antes de comprobar, asi que nunca devuelve vacio y excluye {@code hasta}.
-     * Con {@code desde == hasta} —el caso real, un sondeo exporta su propia lectura— sale un unico
-     * elemento, que es justo lo que hace falta.
-     */
-    public List<LocalDateTime> datesEntre(LocalDateTime fecha1, LocalDateTime fecha2) {
-        List<LocalDateTime> dias = new ArrayList<>();
-        LocalDateTime dia = fecha1;
-        do {
-            dias.add(dia);
-            dia = dia.plusDays(1);
-        } while (fecha2.isAfter(dia));
-        return dias;
+    private static void escribir(String cual, LocalDateTime fecha, Runnable escritura) {
+        try {
+            escritura.run();
+        } catch (Exception e) {
+            logger.error("Fallo exportando la hoja {} de {}: {}", cual, fecha, e.getMessage(), e);
+        }
     }
 }

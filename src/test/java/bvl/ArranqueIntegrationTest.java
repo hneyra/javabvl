@@ -5,15 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import bvl.alert.AlertaFormatter;
 import bvl.alert.DetectorVariaciones;
 import bvl.config.BvlProperties;
-import bvl.controller.BvlController;
 import bvl.market.BvlClient;
 import bvl.market.CotizacionMapper;
 import bvl.market.LectorBvl;
 import bvl.schedule.BvlScheduler;
 import bvl.schedule.CicloSondeo;
-import bvl.service.CatalogoService;
 import bvl.service.ExportService;
-import bvl.service.LecturaService;
 import bvl.ui.VentanaPrincipal;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,18 +52,15 @@ class ArranqueIntegrationTest {
     assertThat(context.getBean(LectorBvl.class)).isNotNull();
     assertThat(context.getBean(BvlClient.class)).isNotNull();
     assertThat(context.getBean(CotizacionMapper.class)).isNotNull();
-    assertThat(context.getBean(LecturaService.class)).isNotNull();
-    assertThat(context.getBean(CatalogoService.class)).isNotNull();
     assertThat(context.getBean(ExportService.class)).isNotNull();
   }
 
   @Test
-  @DisplayName("estan el planificador, las alertas y el controlador de diagnostico")
+  @DisplayName("estan el planificador y las alertas")
   void restoDeBeans() {
     assertThat(context.getBean(BvlScheduler.class)).isNotNull();
     assertThat(context.getBean(DetectorVariaciones.class)).isNotNull();
     assertThat(context.getBean(AlertaFormatter.class)).isNotNull();
-    assertThat(context.getBean(BvlController.class)).isNotNull();
   }
 
   @Test

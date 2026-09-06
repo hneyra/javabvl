@@ -1,42 +1,20 @@
 package bvl.domain;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-@Entity
+/**
+ * La cotizacion de una {@link Accion} en un instante concreto.
+ *
+ * <p>{@code fechaLectura} es el instante que publica la BVL y que comparten todos los items de un
+ * mismo sondeo: es lo que agrupa una lectura completa y da nombre a la hoja del XLS.
+ */
 public class Item {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
-    private Long id;
-
-    @JsonIgnore
-    @ManyToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
-    @JoinColumn(name = "lectura_id", referencedColumnName = "id")
-    private Lectura lectura;
-
-    @JsonIgnore
-    @ManyToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
-    @JoinColumn(name = "accion_id", referencedColumnName = "id")
     private Accion accion;
 
-    @JsonIgnore
-    @ManyToOne(fetch = FetchType.LAZY, cascade = CascadeType.REFRESH)
-    @JoinColumn(name = "moneda_id", referencedColumnName = "id")
     private Moneda moneda;
 
-    @Column(nullable = false, length = 16)
     private String segmento;
 
     private Double cotizacionAnterior;
@@ -60,22 +38,6 @@ public class Item {
     private Long numeroOperaciones;
 
     private Long montoNegociado;
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public Lectura getLectura() {
-        return lectura;
-    }
-
-    public void setLectura(Lectura lectura) {
-        this.lectura = lectura;
-    }
 
     public Accion getAccion() {
         return accion;

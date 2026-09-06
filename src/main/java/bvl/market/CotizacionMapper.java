@@ -2,7 +2,6 @@ package bvl.market;
 
 import bvl.domain.Accion;
 import bvl.domain.Item;
-import bvl.domain.Lectura;
 import bvl.domain.Moneda;
 import bvl.domain.Sector;
 import bvl.market.dto.BvlItem;
@@ -13,23 +12,19 @@ import org.springframework.stereotype.Component;
 /**
  * Traduce el JSON de la BVL al dominio en castellano.
  *
- * <p>Las entidades salen de aqui <b>transitorias y sin id</b>: {@code Accion}, {@code Sector},
- * {@code Moneda} y {@code Lectura} son objetos nuevos en cada sondeo, aunque representen filas que
- * ya existen en la base. Quien las reconcilia por clave natural antes de persistir es
- * {@code CatalogoService}; por eso los {@code saveIfNotExist*} no pueden basarse en el id.
+ * <p>Los objetos salen nuevos en cada sondeo: {@code Accion}, {@code Sector} y {@code Moneda} se
+ * construyen por item aunque se repitan entre ellos. No se comparten instancias porque nadie las
+ * modifica despues; viven lo que dura el ciclo, de la lectura al XLS.
  */
 @Component
 public class CotizacionMapper {
 
-    /** Todos los items de una lectura comparten instante: identifica la {@link Lectura}. */
+    /** Todos los items de una lectura comparten instante: es lo que identifica el sondeo. */
     public List<Item> aItems(List<BvlItem> cotizaciones, LocalDateTime fechaLectura) {
         return cotizaciones.stream().map(c -> aItem(c, fechaLectura)).toList();
     }
 
     public Item aItem(BvlItem bvlItem, LocalDateTime fechaLectura) {
-        Lectura lectura = new Lectura();
-        lectura.setFecha(fechaLectura);
-
         Sector sector = new Sector();
         sector.setNombre(bvlItem.sectorDescription());
 
@@ -46,7 +41,6 @@ public class CotizacionMapper {
         // La columna segmento es NOT NULL; la BVL deja el codigo de sector a null a menudo.
         item.setSegmento(bvlItem.sectorCode() == null ? "" : bvlItem.sectorCode());
         item.setMoneda(moneda);
-        item.setLectura(lectura);
         item.setFechaLectura(fechaLectura);
         item.setCotizacionAnterior(bvlItem.previous());
         item.setFechaAnterior(bvlItem.previousDate());

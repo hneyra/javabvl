@@ -1,9 +1,7 @@
 package bvl;
 
-import bvl.domain.Accion;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
 
 /**
  * Arranque de la aplicacion.
@@ -16,7 +14,6 @@ import org.springframework.boot.persistence.autoconfigure.EntityScan;
  * ejecuta ningun sondeo.
  */
 @SpringBootApplication
-@EntityScan(basePackageClasses = Accion.class)
 public class JavaBvlApplication {
 
     public static void main(String[] args) {
