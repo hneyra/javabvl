@@ -53,8 +53,8 @@ class BvlSchedulerWiringTest {
         .run(context -> {
           assertThat(context).hasNotFailed();
           assertThat(context).hasSingleBean(TaskScheduler.class);
-          assertThat(context.getBean(BvlScheduler.class).getHorario().toCron())
-              .isEqualTo("0 0/20 9-16 * * MON-FRI");
+          assertThat(context.getBean(BvlScheduler.class).getHorario().getIntervaloMinutos())
+              .isEqualTo(20);
         });
   }
 
@@ -64,8 +64,8 @@ class BvlSchedulerWiringTest {
     runner.withPropertyValues("horaInicio=9:40:00", "horaFin=16:30", "intervalo=00:05:00")
         .run(context -> {
           assertThat(context).hasNotFailed();
-          assertThat(context.getBean(BvlScheduler.class).getHorario().toCron())
-              .isEqualTo("0 0/5 9-16 * * MON-FRI");
+          assertThat(context.getBean(BvlScheduler.class).getHorario().getIntervaloMinutos())
+              .isEqualTo(5);
         });
   }
 
@@ -103,14 +103,14 @@ class BvlSchedulerWiringTest {
   @DisplayName("un intervalo invalido impide arrancar, con el nombre de la propiedad en el error")
   void intervaloInvalidoTumbaElArranque() {
     // Mejor no arrancar que sondear con una cadencia distinta de la configurada.
-    runner.withPropertyValues("horaInicio=9:40:00", "horaFin=16:30", "intervalo=00:07:00")
+    runner.withPropertyValues("horaInicio=9:40:00", "horaFin=16:30", "intervalo=00:07:30")
         .run(context -> {
           assertThat(context).hasFailed();
           assertThat(context.getStartupFailure())
               .hasRootCauseInstanceOf(IllegalArgumentException.class);
           assertThat(context.getStartupFailure()).rootCause()
               .hasMessageContaining("intervalo")
-              .hasMessageContaining("divisor");
+              .hasMessageContaining("minutos enteros");
         });
   }
 

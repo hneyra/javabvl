@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
 import java.util.Properties;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -50,7 +51,7 @@ class DeployPropertiesTest {
   }
 
   @Test
-  @DisplayName("el horario de despliegue es valido y produce el cron esperado")
+  @DisplayName("el horario de despliegue es valido y sondea a las horas esperadas")
   void horarioDeDespliegueEsValido() throws IOException {
     Properties props = cargar("deploy/bvl.properties");
 
@@ -59,7 +60,9 @@ class DeployPropertiesTest {
         props.getProperty("horaFin"),
         props.getProperty("intervalo"));
 
-    assertThat(horario.toCron()).isEqualTo("0 0/20 9-16 * * MON-FRI");
+    LocalDateTime primero = horario.siguienteSondeo(LocalDateTime.of(2026, 9, 8, 8, 0));
+    assertThat(primero).isEqualTo(LocalDateTime.of(2026, 9, 8, 9, 40));
+    assertThat(horario.siguienteSondeo(primero)).isEqualTo(LocalDateTime.of(2026, 9, 8, 10, 0));
   }
 
   @Test

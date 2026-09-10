@@ -23,13 +23,12 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.Trigger;
-import org.springframework.scheduling.support.CronTrigger;
 
 /**
  * Planificacion del sondeo: programacion en el TaskScheduler y guarda de ventana horaria.
  *
  * <p>No se arranca ningun hilo real: se invoca {@code ejecutarSondeo()} directamente con un reloj
- * fijo, que es lo que hace la tarea en cada disparo del cron.
+ * fijo, que es lo que hace la tarea en cada disparo programado.
  */
 class BvlSchedulerTest {
 
@@ -97,9 +96,10 @@ class BvlSchedulerTest {
   }
 
   @Test
-  @DisplayName("un disparo del cron antes de la apertura no toca la BVL")
+  @DisplayName("un disparo antes de la apertura no toca la BVL")
   void antesDeLaAperturaNoSondea() {
-    // El cron dispara a las 9:20 porque la hora 9 entra entera en el rango 9-16.
+    // El disparador no programa nada fuera de horario, pero la guarda sigue ahi por si llega uno
+    // (un reloj del sistema que se corrige, un disparo atrasado).
     schedulerA(LocalTime.of(9, 20)).ejecutarSondeo();
 
     verifyNoInteractions(ciclo);
@@ -107,7 +107,7 @@ class BvlSchedulerTest {
   }
 
   @Test
-  @DisplayName("un disparo del cron tras el cierre no toca la BVL")
+  @DisplayName("un disparo tras el cierre no toca la BVL")
   void trasElCierreNoSondea() {
     schedulerA(LocalTime.of(16, 40)).ejecutarSondeo();
 
@@ -128,8 +128,8 @@ class BvlSchedulerTest {
   }
 
   @Test
-  @DisplayName("iniciar programa la tarea con el cron del horario")
-  void iniciarProgramaElCron() {
+  @DisplayName("iniciar programa la tarea con un disparo anclado al horario")
+  void iniciarProgramaElDisparo() {
     programacionDevuelve();
     BvlScheduler s = schedulerA(LocalTime.of(12, 0));
 
@@ -137,9 +137,10 @@ class BvlSchedulerTest {
 
     ArgumentCaptor<Trigger> captor = ArgumentCaptor.forClass(Trigger.class);
     verify(taskScheduler).schedule(any(Runnable.class), captor.capture());
-    assertThat(captor.getValue()).isInstanceOf(CronTrigger.class);
-    assertThat(((CronTrigger) captor.getValue()).getExpression())
-        .isEqualTo("0 0/20 9-16 * * MON-FRI");
+    assertThat(captor.getValue()).isInstanceOf(DisparoAnclado.class);
+    HorarioSondeo programado = ((DisparoAnclado) captor.getValue()).getHorario();
+    assertThat(programado.getInicio()).isEqualTo(LocalTime.of(9, 40));
+    assertThat(programado.getIntervaloMinutos()).isEqualTo(20);
     assertThat(s.isActivo()).isTrue();
   }
 
@@ -180,7 +181,7 @@ class BvlSchedulerTest {
   }
 
   @Test
-  @DisplayName("iniciar lanza una lectura inmediata, sin esperar al primer disparo del cron")
+  @DisplayName("iniciar lanza una lectura inmediata, sin esperar al primer disparo programado")
   void iniciarLanzaLecturaInmediata() {
     BvlScheduler s = schedulerA(LocalTime.of(12, 0));
 
@@ -200,7 +201,7 @@ class BvlSchedulerTest {
   @Test
   @DisplayName("la lectura inmediata ignora la ventana: trae los ultimos datos publicados")
   void lecturaInmediataIgnoraLaVentana() {
-    // A las 3 de la madrugada el cron no sondearia, pero pulsar Iniciar debe leer igual.
+    // A las 3 de la madrugada no hay sondeo programado, pero pulsar Iniciar debe leer igual.
     schedulerA(LocalTime.of(3, 0)).sondearAhora();
 
     verify(ciclo).process();
@@ -208,8 +209,8 @@ class BvlSchedulerTest {
   }
 
   @Test
-  @DisplayName("el cron sigue respetando la ventana aunque la lectura inmediata no")
-  void elCronSigueRespetandoLaVentana() {
+  @DisplayName("los disparos programados respetan la ventana aunque la lectura inmediata no")
+  void losDisparosRespetanLaVentana() {
     schedulerA(LocalTime.of(3, 0)).ejecutarSondeo();
 
     verifyNoInteractions(ciclo);
@@ -240,7 +241,7 @@ class BvlSchedulerTest {
   }
 
   @Test
-  @DisplayName("reprogramar en marcha cancela la tarea vieja y programa el cron nuevo")
+  @DisplayName("reprogramar en marcha cancela la tarea vieja y programa el horario nuevo")
   void reprogramarEnMarcha() {
     ScheduledFuture<?> vieja = mock(ScheduledFuture.class);
     ScheduledFuture<?> nueva = mock(ScheduledFuture.class);
@@ -254,8 +255,9 @@ class BvlSchedulerTest {
     verify(vieja).cancel(false);
     ArgumentCaptor<Trigger> captor = ArgumentCaptor.forClass(Trigger.class);
     verify(taskScheduler, times(2)).schedule(any(Runnable.class), captor.capture());
-    assertThat(((CronTrigger) captor.getAllValues().get(1)).getExpression())
-        .isEqualTo("0 0/5 10-15 * * MON-FRI");
+    HorarioSondeo nuevo = ((DisparoAnclado) captor.getAllValues().get(1)).getHorario();
+    assertThat(nuevo.getInicio()).isEqualTo(LocalTime.of(10, 0));
+    assertThat(nuevo.getIntervaloMinutos()).isEqualTo(5);
     assertThat(s.isActivo()).isTrue();
   }
 
@@ -268,7 +270,8 @@ class BvlSchedulerTest {
 
     verifyNoInteractions(taskScheduler);
     assertThat(s.isActivo()).isFalse();
-    assertThat(s.getHorario().toCron()).isEqualTo("0 0/5 10-15 * * MON-FRI");
+    assertThat(s.getHorario().getInicio()).isEqualTo(LocalTime.of(10, 0));
+    assertThat(s.getHorario().getIntervaloMinutos()).isEqualTo(5);
   }
 
   @Test
@@ -293,5 +296,49 @@ class BvlSchedulerTest {
     s.ejecutarSondeo();
 
     verify(ciclo).process();
+  }
+
+  // --- Guarda de ventana: zona y retrasos ---------------------------------------------------
+
+  /** Scheduler con un reloj exacto, para probar zonas horarias y retrasos de milisegundos. */
+  private BvlScheduler schedulerConReloj(Clock reloj) {
+    BvlScheduler s = new BvlScheduler(ciclo, taskScheduler,
+        HorarioSondeo.of("9:40:00", "16:30", "00:20:00"), reloj);
+    s.setListener(listener);
+    return s;
+  }
+
+  @Test
+  @DisplayName("el sondeo de la hora de fin no se pierde aunque el disparo llegue milisegundos tarde")
+  void sondeoDeCierreConRetraso() {
+    // Un disparo programado a las 16:30:00 se ejecuta siempre un poco despues. Con la guarda
+    // exacta, 16:30:00.005 ya quedaba fuera de la ventana y el sondeo de cierre no ocurria nunca.
+    Instant tarde = LocalDateTime.of(2024, 1, 16, 16, 30, 0, 5_000_000).atZone(ZONA).toInstant();
+
+    schedulerConReloj(Clock.fixed(tarde, ZONA)).ejecutarSondeo();
+
+    verify(ciclo).process();
+  }
+
+  @Test
+  @DisplayName("la ventana se mide en hora de Lima aunque el equipo este en otra zona")
+  void ventanaEnHoraDeLima() {
+    // 17:00 UTC de enero: las 12:00 en Lima, dentro de la sesion; las 18:00 en Madrid, fuera.
+    Clock madrid = Clock.fixed(Instant.parse("2024-01-16T17:00:00Z"), ZoneId.of("Europe/Madrid"));
+
+    schedulerConReloj(madrid).ejecutarSondeo();
+
+    verify(ciclo).process();
+  }
+
+  @Test
+  @DisplayName("un disparo muy tardio, con el equipo dormido hasta la noche, no sondea")
+  void disparoMuyTardioNoSondea() {
+    // Si el equipo se suspende a media sesion, el disparo pendiente se ejecuta al despertar.
+    Instant noche = LocalDateTime.of(2024, 1, 16, 21, 0).atZone(ZONA).toInstant();
+
+    schedulerConReloj(Clock.fixed(noche, ZONA)).ejecutarSondeo();
+
+    verifyNoInteractions(ciclo);
   }
 }

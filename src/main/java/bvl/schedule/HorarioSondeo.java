@@ -1,7 +1,11 @@
 package bvl.schedule;
 
+import java.time.DayOfWeek;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 
@@ -9,22 +13,27 @@ import java.time.format.DateTimeParseException;
  * Horario de sondeo derivado de las propiedades {@code horaInicio}, {@code horaFin} e
  * {@code intervalo}.
  *
- * <p>Un cron no sabe expresar "cada N minutos entre las 9:40 y las 16:30", asi que el horario se
- * parte en dos: {@link #toCron()} genera la rejilla del reloj dentro del rango de horas, y
- * {@link #dentroDeVentana(LocalTime)} descarta los disparos que caen fuera del horario real de la
- * sesion. Ejemplo con los valores de produccion (9:40 - 16:30 cada 20 min): el cron dispara tambien
- * a las 9:00 y 9:20 porque la hora 9 entra entera en el rango, y la ventana los descarta.
+ * <p>Se sondea a la hora de inicio y luego cada intervalo <b>contado desde la hora de inicio</b>,
+ * hasta la hora de fin incluida, de lunes a viernes: con 9:45 cada 20 minutos, a las 9:45, 10:05,
+ * 10:25... {@link #siguienteSondeo(LocalDateTime)} calcula el siguiente de esos instantes.
  *
- * <p>El intervalo tiene que ser un numero entero de minutos divisor de 60 para que la rejilla sea
- * regular. Se valida al construir para que un properties mal puesto reviente al arrancar y no a
- * mitad de sesion.
+ * <p>Hasta la 5.0.2 esto era un cron de Spring, que solo sabe disparar sobre la rejilla del reloj
+ * (:00, :20, :40): la hora de inicio servia para descartar disparos, no para marcar la cadencia, y
+ * con una hora de inicio que no fuera multiplo del intervalo el primer sondeo caia en el siguiente
+ * tick de la rejilla. Por el mismo motivo el intervalo tenia que dividir a 60; ya no hace falta.
+ *
+ * <p>Todas las horas son de {@link #ZONA_MERCADO}, no de la zona del equipo.
+ *
+ * <p>Se valida al construir para que un properties mal puesto reviente al arrancar y no a mitad de
+ * sesion.
  */
 public final class HorarioSondeo {
 
+    /** Las horas de la ventana son hora de la BVL, no del equipo donde corra la aplicacion. */
+    public static final ZoneId ZONA_MERCADO = ZoneId.of("America/Lima");
+
     /** Acepta "9:40:00" y "16:30": hora de uno o dos digitos y segundos opcionales. */
     private static final DateTimeFormatter FORMATO_HORA = DateTimeFormatter.ofPattern("H:mm[:ss]");
-
-    private static final String DIAS_DE_MERCADO = "MON-FRI";
 
     private final LocalTime inicio;
     private final LocalTime fin;
@@ -43,7 +52,7 @@ public final class HorarioSondeo {
             throw new IllegalArgumentException(
                     "horaFin (" + horaFin + ") debe ser posterior a horaInicio (" + horaInicio + ")");
         }
-        return new HorarioSondeo(inicio, fin, parseIntervalo(intervalo));
+        return new HorarioSondeo(inicio, fin, parseIntervalo(intervalo, Duration.between(inicio, fin)));
     }
 
     private static LocalTime parseHora(String valor, String propiedad) {
@@ -64,32 +73,64 @@ public final class HorarioSondeo {
         return Duration.between(LocalTime.MIDNIGHT, parseHora(valor, propiedad));
     }
 
-    private static int parseIntervalo(String intervalo) {
+    /**
+     * Minutos enteros, al menos uno, y que quepan en la franja: un intervalo mas largo que la franja
+     * no llegaria nunca al segundo sondeo del dia, y seguramente es un error al teclear.
+     */
+    private static int parseIntervalo(String intervalo, Duration franja) {
         Duration d = parseDuracion(intervalo, "intervalo");
         if (d.toSecondsPart() != 0) {
             throw new IllegalArgumentException(
                     "La propiedad intervalo ('" + intervalo + "') debe ser minutos enteros, sin segundos");
         }
-        long minutos = d.toMinutes();
-        if (minutos < 1 || minutos > 60) {
+        if (d.isZero()) {
             throw new IllegalArgumentException(
-                    "La propiedad intervalo ('" + intervalo + "') debe estar entre 00:01:00 y 01:00:00");
+                    "La propiedad intervalo ('" + intervalo + "') debe ser de al menos un minuto");
         }
-        if (60 % minutos != 0) {
+        if (d.compareTo(franja) > 0) {
             throw new IllegalArgumentException(
-                    "La propiedad intervalo ('" + intervalo + "') debe ser un divisor de 60 minutos "
-                            + "(1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30 o 60) para generar una rejilla regular");
+                    "La propiedad intervalo ('" + intervalo + "') no cabe en la franja de horaInicio a "
+                            + "horaFin, que dura " + franja.toMinutes() + " min");
         }
-        return (int) minutos;
+        return (int) d.toMinutes();
     }
 
-    /** Expresion cron de Spring: {@code segundo minuto hora dia-mes mes dia-semana}. */
-    public String toCron() {
-        String minutos = intervaloMinutos == 60 ? "0" : "0/" + intervaloMinutos;
-        String horas = inicio.getHour() == fin.getHour()
-                ? String.valueOf(inicio.getHour())
-                : inicio.getHour() + "-" + fin.getHour();
-        return "0 " + minutos + " " + horas + " * * " + DIAS_DE_MERCADO;
+    /**
+     * El primer sondeo estrictamente posterior a {@code despuesDe}, en hora de
+     * {@link #ZONA_MERCADO}.
+     *
+     * <p>Estrictamente posterior porque quien pregunta suele ser un disparo que acaba de ejecutarse
+     * (con unos milisegundos de retraso): devolver ese mismo instante lo repetiria.
+     */
+    public LocalDateTime siguienteSondeo(LocalDateTime despuesDe) {
+        LocalDate dia = despuesDe.toLocalDate();
+        if (esDiaDeMercado(dia)) {
+            LocalDateTime hoy = siguienteDelDia(dia, despuesDe);
+            if (hoy != null) {
+                return hoy;
+            }
+        }
+        do {
+            dia = dia.plusDays(1);
+        } while (!esDiaDeMercado(dia));
+        return dia.atTime(inicio);
+    }
+
+    /** El siguiente sondeo de ese dia, o {@code null} si ya no queda ninguno antes de la hora de fin. */
+    private LocalDateTime siguienteDelDia(LocalDate dia, LocalDateTime despuesDe) {
+        LocalDateTime primero = dia.atTime(inicio);
+        if (despuesDe.isBefore(primero)) {
+            return primero;
+        }
+        long intervalo = intervaloMinutos * 60L;
+        long transcurridos = Duration.between(primero, despuesDe).toSeconds();
+        LocalDateTime siguiente = primero.plusSeconds((transcurridos / intervalo + 1) * intervalo);
+        return siguiente.isAfter(dia.atTime(fin)) ? null : siguiente;
+    }
+
+    private static boolean esDiaDeMercado(LocalDate dia) {
+        DayOfWeek d = dia.getDayOfWeek();
+        return d != DayOfWeek.SATURDAY && d != DayOfWeek.SUNDAY;
     }
 
     /** Ventana real de la sesion, con ambos extremos incluidos. */
@@ -112,6 +153,6 @@ public final class HorarioSondeo {
     @Override
     public String toString() {
         return "HorarioSondeo{" + inicio + " - " + fin + " cada " + intervaloMinutos
-                + " min, cron='" + toCron() + "'}";
+                + " min, hora de Lima}";
     }
 }

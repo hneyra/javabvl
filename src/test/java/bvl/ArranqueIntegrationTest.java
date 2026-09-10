@@ -70,7 +70,8 @@ class ArranqueIntegrationTest {
 
     assertThat(properties.getUrlCotizaciones()).endsWith("/v1/stock-quote/market");
     assertThat(properties.getUrlHora()).endsWith("/v1/traded-amount/daily");
-    assertThat(properties.getHorario().toCron()).isEqualTo("0 0/5 9-16 * * MON-FRI");
+    assertThat(properties.getHorario().getInicio()).isEqualTo(java.time.LocalTime.of(9, 40));
+    assertThat(properties.getHorario().getIntervaloMinutos()).isEqualTo(5);
     assertThat(properties.getAlarma()).isEqualTo("2");
   }
 
