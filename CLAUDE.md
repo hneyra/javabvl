@@ -116,8 +116,9 @@ BvlScheduler (arranca al pulsar Iniciar; la app en reposo no procesa nada)
   Diario: `<xlsPath>/<año>/<Mes>/<yyyy.MM.dd>.xls`, una hoja por hora.
   Mensual: `<xlsPath>/<año>/<yyyy.MM_Mes>.xls`, una hoja por día.
 - **`VentanaPrincipal`** — única ventana; solo compone y cablea. Enter en los campos de horario
-  reprograma en caliente; si lo tecleado no vale, el error va a la barra de estado y se conserva el
-  horario anterior. Todo lo que llega del planificador se despacha al EDT.
+  reprograma en caliente. Si lo tecleado no vale, un aviso da el motivo y el horario vigente, el
+  texto **se queda** para corregirlo, e Iniciar **no arranca**: antes se reponían los campos a 9:40 y
+  se arrancaba con el horario viejo sin decirlo. Todo lo que llega del planificador se despacha al EDT.
 - **`SwingConfiguration`** — construye la ventana **solo si hay pantalla**. En producción siempre la
   hay (`headless(false)`); en la suite no, y por eso el contexto completo puede arrancar en los
   tests.

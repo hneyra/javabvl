@@ -13,6 +13,10 @@ Aquí vivían las notas que antes estaban en el `README.md`.
   equipo, así que en una máquina fuera de Perú el horario quedaba desplazado respecto al mercado.
 * El sondeo de la hora de fin ya no se pierde. El disparo siempre llegaba unos milisegundos tarde y
   quedaba fuera de la ventana.
+* **Un horario mal escrito ya no se descarta en silencio.** Al pulsar Iniciar con un horario no
+  válido, los campos volvían a 9:40 y el sondeo arrancaba con el horario anterior; el motivo quedaba
+  tapado en la barra de estado. Ahora un aviso explica qué falla, lo tecleado se conserva para
+  corregirlo e Iniciar no arranca.
 
 ### Mejoras
 

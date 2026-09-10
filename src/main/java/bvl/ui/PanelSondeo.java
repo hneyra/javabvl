@@ -102,8 +102,13 @@ public class PanelSondeo extends JPanel {
         return Double.parseDouble(txtAlarma.getText());
     }
 
-    /** El boton es un interruptor: mientras sondea dice Detener. */
+    /**
+     * El boton es un interruptor: mientras sondea queda pulsado y dice Detener. Se fijan las dos
+     * cosas: si Iniciar se cancela, el clic ya lo habia dejado pulsado, y cambiar solo el texto
+     * dejaria un boton que dice Iniciar pero cuyo siguiente clic seria un Detener.
+     */
     public void marcarSondeando(boolean sondeando) {
+        btnIniciar.setSelected(sondeando);
         btnIniciar.setText(sondeando ? "Detener" : "Iniciar");
     }
 }
