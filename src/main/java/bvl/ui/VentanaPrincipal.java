@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.border.BevelBorder;
@@ -100,34 +101,55 @@ public class VentanaPrincipal extends JFrame implements PanelSondeo.Acciones, So
 
     // --- Acciones del formulario ---------------------------------------------------------------
 
-    /**
-     * Aplica lo tecleado sin reiniciar. Si no vale, se avisa en la barra de estado y se conserva el
-     * horario anterior: mas vale seguir sondeando con la cadencia vieja que quedarse sin sondeo.
-     */
+    /** Enter en un campo de horario: se aplica en caliente, sin reiniciar. */
     @Override
     public void aplicarHorario() {
+        aplicar();
+    }
+
+    /**
+     * Aplica el horario tecleado. Si no vale, avisa del motivo y deja el texto como esta, para que
+     * se pueda corregir; el horario vigente no cambia.
+     *
+     * <p>Antes se reponia el horario anterior en los campos y el motivo se escribia en la barra de
+     * estado, donde lo tapaba el siguiente mensaje: parecia que la ventana volvia sola a 9:40.
+     *
+     * @return si el horario se aplico
+     */
+    private boolean aplicar() {
         HorarioSondeo nuevo;
         try {
             nuevo = panel.leerHorario();
         } catch (IllegalArgumentException e) {
-            estado("Horario no aplicado: " + e.getMessage());
-            panel.mostrarHorario(scheduler.getHorario());
-            return;
+            estado("Horario no aplicado");
+            // Modal a proposito: responde a un clic o a un Enter del usuario, en el EDT. La regla
+            // de no abrir dialogos va por el hilo del planificador, que no debe quedarse esperando.
+            JOptionPane.showMessageDialog(this,
+                    e.getMessage() + "\n\nSigue vigente: " + describir(scheduler.getHorario()) + ".",
+                    "Horario no válido", JOptionPane.WARNING_MESSAGE);
+            return false;
         }
         scheduler.reprogramar(nuevo);
         panel.mostrarHorario(nuevo);
-        estado((scheduler.isActivo() ? "Sondeando " : "Horario listo ")
-                + nuevo.getInicio() + " - " + nuevo.getFin() + ", cada "
-                + nuevo.getIntervaloMinutos() + " min");
+        estado((scheduler.isActivo() ? "Sondeando " : "Horario listo ") + describir(nuevo));
+        return true;
     }
 
     @Override
     public void iniciar() {
-        aplicarHorario();
+        if (!aplicar()) {
+            // Arrancar con un horario que el usuario no ha pedido es peor que no arrancar.
+            panel.marcarSondeando(false);
+            return;
+        }
         scheduler.iniciar();
         panel.marcarSondeando(true);
-        estado("Sondeando " + scheduler.getHorario().getInicio() + " - "
-                + scheduler.getHorario().getFin());
+        estado("Sondeando " + describir(scheduler.getHorario()));
+    }
+
+    private static String describir(HorarioSondeo horario) {
+        return horario.getInicio() + " - " + horario.getFin() + ", cada "
+                + horario.getIntervaloMinutos() + " min";
     }
 
     @Override

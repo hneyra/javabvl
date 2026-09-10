@@ -41,15 +41,16 @@ Tres cosas que hacen perder tiempo:
 | `baseUrl`, `urlCotizaciones`, `urlHora` | endpoints BVL |
 | `xlsPath` | raíz donde `BvlExporter` crea los XLS |
 | `alarma` | umbral de variación % que dispara la alerta |
-| `horaInicio`, `horaFin`, `intervalo` | cron y ventana de sondeo; `intervalo` debe ser minutos enteros divisores de 60 |
+| `horaInicio`, `horaFin`, `intervalo` | cuándo se sondea: a `horaInicio` y cada `intervalo` desde ella hasta `horaFin`, en hora de Lima; `intervalo` en minutos enteros que quepan en la franja |
 | `alertaTimeout` | cuánto aguanta abierta la alerta antes de cerrarse sola; si falta, 10 min |
 
 Dos cosas no obvias:
 
 - `--spring.config.location` **sustituye** al `application.properties` empaquetado, no lo complementa. Toda propiedad
   sin valor por defecto debe existir en `deploy/bvl.properties`; `DeployPropertiesTest` lo verifica en el build.
-- El sondeo corre **de lunes a viernes**. El cron cubre el rango de horas completo, así que dispara también antes de
-  `horaInicio`; esos disparos los descarta la ventana de `HorarioSondeo`.
+- El sondeo corre **de lunes a viernes y en hora de Lima** (`America/Lima`), sea cual sea la zona del equipo. La
+  cadencia cuenta **desde `horaInicio`**, no desde la rejilla del reloj: 9:45 cada 20 min sondea a las 9:45, 10:05,
+  10:25… Hasta la 5.0.2 era un cron sobre la rejilla (:00, :20, :40) y la hora de inicio solo descartaba disparos.
 
 ## Arquitectura
 
@@ -64,7 +65,7 @@ bvl/
 ├─ service/     ExportService
 ├─ export/      BvlExporter · XlsWriter · CabeceraCotizaciones · ColumnaCotizacion · RutaXls · PlantillaXls
 ├─ alert/       DetectorVariaciones · Variacion · AlertaFormatter
-├─ schedule/    BvlScheduler · HorarioSondeo · CicloSondeo · Lectura · ResultadoSondeo · SondeoListener
+├─ schedule/    BvlScheduler · HorarioSondeo · DisparoAnclado · CicloSondeo · Lectura · ResultadoSondeo · SondeoListener
 └─ ui/          VentanaPrincipal · PanelSondeo · BandejaSistema · AlertaDialogo · Notificador · VentanaDatos
 ```
 
@@ -73,8 +74,8 @@ Recorrido de un sondeo:
 ```
 BvlScheduler (arranca al pulsar Iniciar; la app en reposo no procesa nada)
   ├─ sondearAhora()    → una lectura ya, sin mirar la ventana
-  └─ cron de las properties
-       └─ ventana horaria: descarta disparos fuera de [horaInicio, horaFin]
+  └─ DisparoAnclado: horaInicio + k·intervalo hasta horaFin, lunes a viernes, hora de Lima
+       └─ guarda de ventana: descarta disparos muy tardíos (equipo suspendido)
        └─ CicloSondeo.process() → ResultadoSondeo(actual, previa)
             ├─ LectorBvl.readData()     → BvlClient (HTTP) + CotizacionMapper (JSON → dominio)
             └─ ExportService.exportar() → BvlExporter → XlsWriter (POI), desde memoria
@@ -89,12 +90,14 @@ BvlScheduler (arranca al pulsar Iniciar; la app en reposo no procesa nada)
   app en vez de fallar a media sesión. `alarma` y `alertaTimeout` viajan **en crudo** a propósito
   (la primera se muestra tal cual en el campo; la segunda la parsea la UI para poder degradar a 10
   min en vez de tumbar el arranque).
-- **`HorarioSondeo`** — properties → cron + ventana. El cron cubre el rango de horas completo, así
-  que dispara también antes de `horaInicio`; esos disparos los descarta la ventana.
-- **`BvlScheduler`** — `CronTrigger` sobre un `TaskScheduler` de un solo hilo. Al pulsar Iniciar
+- **`HorarioSondeo`** — properties → instantes de sondeo. `siguienteSondeo()` es una función pura: el
+  primer `horaInicio + k·intervalo` posterior al instante dado, hasta `horaFin` incluida, saltando fines
+  de semana. **`DisparoAnclado`** la adapta al `Trigger` de Spring, siempre en hora de Lima.
+- **`BvlScheduler`** — `DisparoAnclado` sobre un `TaskScheduler` de un solo hilo. Al pulsar Iniciar
   hace una **lectura inmediata** (`sondearAhora()`, que **ignora la ventana** a propósito) y además
-  programa el cron. Nunca propaga excepciones: el planificador cancelaría la tarea hasta el
-  siguiente reinicio.
+  programa el disparo. La guarda de ventana admite unos segundos de retraso: un disparo siempre llega
+  algo tarde, y sin ese margen el sondeo de la hora de fin se perdía. Nunca propaga excepciones: el
+  planificador cancelaría la tarea hasta el siguiente reinicio.
 - **`CicloSondeo`** — el recorrido completo de una lectura, y nada más. No sabe de horarios ni de UI.
   Devuelve `ResultadoSondeo` en vez de dejar las cotizaciones en un campo compartido entre hilos.
   Retiene la lectura anterior, y **solo la anterior**: encadenar resultados acumularía la sesión entera
@@ -113,8 +116,9 @@ BvlScheduler (arranca al pulsar Iniciar; la app en reposo no procesa nada)
   Diario: `<xlsPath>/<año>/<Mes>/<yyyy.MM.dd>.xls`, una hoja por hora.
   Mensual: `<xlsPath>/<año>/<yyyy.MM_Mes>.xls`, una hoja por día.
 - **`VentanaPrincipal`** — única ventana; solo compone y cablea. Enter en los campos de horario
-  reprograma en caliente; si lo tecleado no vale, el error va a la barra de estado y se conserva el
-  horario anterior. Todo lo que llega del planificador se despacha al EDT.
+  reprograma en caliente. Si lo tecleado no vale, un aviso da el motivo y el horario vigente, el
+  texto **se queda** para corregirlo, e Iniciar **no arranca**: antes se reponían los campos a 9:40 y
+  se arrancaba con el horario viejo sin decirlo. Todo lo que llega del planificador se despacha al EDT.
 - **`SwingConfiguration`** — construye la ventana **solo si hay pantalla**. En producción siempre la
   hay (`headless(false)`); en la suite no, y por eso el contexto completo puede arrancar en los
   tests.

@@ -20,8 +20,10 @@ Esta aplicación hace eso sola y solo te interrumpe cuando pasa algo:
 
 ## Cómo funciona
 
-Al pulsar **Iniciar**, la aplicación hace una lectura inmediata y luego repite cada `intervalo`
-minutos, de lunes a viernes, entre `horaInicio` y `horaFin`. En cada lectura:
+Al pulsar **Iniciar**, la aplicación hace una lectura inmediata. Después consulta a la
+`horaInicio` y cada `intervalo` minutos **contados desde ella**, hasta la `horaFin`, de lunes a
+viernes: con 9:45 cada 20 minutos, a las 9:45, 10:05, 10:25… Las horas son siempre **hora de Lima**,
+esté donde esté el equipo. En cada lectura:
 
 1. Pide las cotizaciones a la API pública de la BVL (`dataondemand.bvl.com.pe`).
 2. Las escribe en dos ficheros Excel:
@@ -61,8 +63,8 @@ sobre la marcha desde la ventana: escribe el valor y pulsa Enter.
 |---|---|
 | `xlsPath` | carpeta raíz donde se crean los Excel |
 | `alarma` | umbral de variación en %, a partir del cual avisa |
-| `horaInicio`, `horaFin` | franja en la que consulta, formato `H:mm:ss` |
-| `intervalo` | cada cuánto consulta; minutos enteros divisores de 60 (5, 10, 15, 20, 30…) |
+| `horaInicio`, `horaFin` | franja en la que consulta, en hora de Lima, formato `H:mm:ss` |
+| `intervalo` | cada cuánto consulta, contando desde `horaInicio`; minutos enteros que quepan en la franja |
 | `alertaTimeout` | cuánto aguanta abierto un aviso antes de cerrarse solo; por defecto 10 minutos |
 | `baseUrl`, `urlCotizaciones`, `urlHora` | direcciones de la API de la BVL |
 
@@ -75,7 +77,7 @@ menos `alertaTimeout`, que tiene valor por defecto.
 Java 25 y Spring Boot 4.1, con la interfaz en Swing. Una consulta recorre estas piezas:
 
 ```
-BvlScheduler   cuándo se consulta: cron de lunes a viernes + franja horaria
+BvlScheduler   cuándo se consulta: desde horaInicio cada intervalo, lunes a viernes, hora de Lima
   └─ CicloSondeo        el recorrido completo de una lectura
        ├─ LectorBvl       habla con la BVL y traduce el JSON al dominio en castellano
        └─ ExportService   vuelca la lectura a los dos Excel
